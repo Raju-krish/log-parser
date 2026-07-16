@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Log Parser — User administration{% endblock %}
+{% block content %}
+
+<section class="hero">
+  <h2>User administration</h2>
+  <p>Add people who may access the Log Parser, or reset a password. New or reset
+     accounts choose their password on their next sign-in.</p>
+</section>
+
+<div class="card">
+  <h3 class="section-label mono" style="margin-top:0;">Add a user</h3>
+  <form method="POST" action="{{ url_for('admin_add') }}" class="admin-add">
+    <div class="field">
+      <label for="new-username">Username</label>
+      <input type="text" id="new-username" name="username" placeholder="e.g. jsmith"
+             pattern="[A-Za-z0-9._-]{2,40}" autocomplete="off" required />
+    </div>
+    <div class="field">
+      <label for="new-password">Password <span class="hint">(optional)</span></label>
+      <input type="password" id="new-password" name="password" placeholder="leave blank → set on first login" autocomplete="new-password" />
+    </div>
+    <label class="source-toggle admin-adminflag"><input type="checkbox" name="is_admin" value="1" /> Administrator</label>
+    <button type="submit" class="btn-primary">Add user</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="sources-head">
+    <h3 class="mono" style="margin:0;">Users <span class="pill">{{ users|length }}</span></h3>
+  </div>
+  <table class="ws-table" style="margin-top:8px;">
+    <thead>
+      <tr><th>Username</th><th>Role</th><th>Status</th><th class="ws-actions-head">Actions</th></tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+        <tr>
+          <td class="ws-name">{{ u.username }}</td>
+          <td class="ws-meta">
+            {% if u.role == 'admin' %}<span class="role-badge role-admin">admin</span>{% else %}<span class="role-badge">user</span>{% endif %}
+          </td>
+          <td class="ws-meta">
+            {% if u.needs_password %}<span class="status-pending">awaiting password</span>{% else %}<span class="status-ok">active</span>{% endif %}
+          </td>
+          <td class="ws-actions">
+            <form method="POST" action="{{ url_for('admin_reset') }}"
+                  onsubmit="return confirm('Reset password for {{ u.username }}? They will set a new one on next sign-in.');">
+              <input type="hidden" name="username" value="{{ u.username }}" />
+              <button type="submit" class="btn secondary">Reset password</button>
+            </form>
+            {% if u.username != current_user %}
+            <form method="POST" action="{{ url_for('admin_delete') }}"
+                  onsubmit="return confirm('Remove {{ u.username }}? They will lose access.');">
+              <input type="hidden" name="username" value="{{ u.username }}" />
+              <button type="submit" class="btn secondary danger">Remove</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

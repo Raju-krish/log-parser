@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Log Parser — About &amp; Features{% endblock %}
+{% block content %}
+
+<div class="about-page">
+
+  <section class="about-hero">
+    <div class="login-logo">◧</div>
+    <h1>LOG <span>PARSER</span></h1>
+    <p class="about-tag">Turn a pile of RDKB device-log dumps into one searchable story of what
+       actually went wrong — every file correlated on a single, color-coded, severity-aware timeline.</p>
+    <div class="about-actions">
+      <button type="button" class="btn-primary" id="share-btn">🔗 &nbsp;Copy shareable link</button>
+      {% if current_user %}
+        <a class="btn secondary" href="{{ url_for('index') }}">Open the app →</a>
+      {% else %}
+        <a class="btn secondary" href="{{ url_for('login') }}">Sign in →</a>
+      {% endif %}
+    </div>
+    <div class="share-hint" id="share-hint" hidden>Link copied to clipboard ✓</div>
+  </section>
+
+  <p class="about-lead">Built around the <strong>real pain of debugging RDKB device logs</strong>.
+     Each card is a frustration engineers actually hit — and how Log Parser takes it away.</p>
+
+  <div class="about-grid">
+
+    <div class="about-card">
+      <h3>🧩 Scattered across dozens of files</h3>
+      <p class="pain-q">“A single Wi-Fi drop is smeared across wifihal, wifimgr, wifimon and messages — I'm flipping between files trying to line up what happened when.”</p>
+      <div class="fix-head">How Log Parser solves it</div>
+      <ul>
+        <li>Merges every file into one <strong>chronological timeline</strong>, color-coded per source with filename badges</li>
+        <li>Switch to a per-file <strong>Separate</strong> view, or hide / include any log from a clickable legend</li>
+        <li>Aligned monospaced columns so you scan by eye, fast</li>
+      </ul>
+    </div>
+
+    <div class="about-card">
+      <h3>🕒 The same moment is written a different way in every file</h3>
+      <p class="pain-q">“I know the outage hit around <code>11:14</code> on <code>05-05</code> — but I can't just grep the time. One file writes it <code>260505-11:14:07</code>, another <code>2026-05-05T11:14:00Z</code>, syslog only says <code>May  5 11:14:03</code>, and one drops the punctuation entirely: <code>20260505 111407</code>. Same instant, a different string in every file — so a plain search finds none of them.”</p>
+      <div class="fix-head">How Log Parser solves it</div>
+      <ul>
+        <li>Detects <strong>~12 RDKB timestamp formats</strong> (even a leading <code>[OneWifi]</code>-style tag before the stamp) and normalizes every one to a single <strong>sortable UTC</strong> value</li>
+        <li>So one <strong>time-range filter</strong> spans every file at once — no grepping for a moment each log spells differently</li>
+        <li>Handles 2-digit boot years and year-less syslog; lines with no stamp stay anchored to the entry above them</li>
+      </ul>
+    </div>
+
+    <div class="about-card">
+      <h3>📦 Sessions split across separate tarballs</h3>
+      <p class="pain-q">“A device's logs arrive as a zip of separate tars — one holds 1–2 pm, the next 2–5 pm. I untar every one by hand, and even then I still can't line them up on a single timeline.”</p>
+      <div class="fix-head">How Log Parser solves it</div>
+      <ul>
+        <li>Drop the whole zip — it <strong>auto-extracts every nested tar</strong>, no manual untarring</li>
+        <li>A <strong>bundle picker</strong> lets you load one, several, or all session tars at once</li>
+        <li>Every session is <strong>merged onto one continuous, time-sorted timeline</strong> — 1–2 pm and 2–5 pm sit end to end</li>
+      </ul>
+    </div>
+
+    <div class="about-card">
+      <h3>🔎 grep gives you hits, not context</h3>
+      <p class="pain-q">“I grep <code>brlan0</code>, get 200 matches with no surroundings, and still can't see what happened right before it failed.”</p>
+      <div class="fix-head">How Log Parser solves it</div>
+      <ul>
+        <li><strong>Global search</strong> jumps straight to a match, sitting in its natural place on the timeline so you see the lines of context around it</li>
+        <li>A floating <strong>match navigator</strong> steps through every hit (next / prev) with the word highlighted</li>
+        <li>Zoom in fast with a <strong>time-range</strong> filter and case-insensitive search</li>
+      </ul>
+    </div>
+
+    <div class="about-card">
+      <h3>🚦 The 3 lines that matter are buried in noise</h3>
+      <p class="pain-q">“99% of the log is info / debug chatter — the errors that actually explain the outage are lost in it.”</p>
+      <div class="fix-head">How Log Parser solves it</div>
+      <ul>
+        <li>Auto-classifies each line
+          <span class="sev-tag sev-t-error">error</span>
+          <span class="sev-tag sev-t-warn">warn</span>
+          <span class="sev-tag sev-t-info">info</span>
+          <span class="sev-tag sev-t-debug">debug</span>
+          from RDK <code>&lt;E&gt;/&lt;W&gt;</code> markers &amp; keywords</li>
+        <li>A <strong>severity bar</strong> shows live counts; filter to “warnings &amp; above” in one click</li>
+      </ul>
+    </div>
+
+    <div class="about-card">
+      <h3>💾 An hour of analysis, gone when the tab closes</h3>
+      <p class="pain-q">“I narrow a bug down, then lose it all on refresh — or I find the smoking gun and can't get back to it tomorrow.”</p>
+      <div class="fix-head">How Log Parser solves it</div>
+      <ul>
+        <li>Save a parsed set as a named <strong>workspace</strong> and reload it any time</li>
+        <li><strong>Pin</strong> the smoking-gun lines with a star and attach a <strong>multi-line note</strong> — jot down as much context as you need right on the line (Enter for new lines, Ctrl/⌘+Enter to save)</li>
+        <li><strong>Go to line</strong> jumps straight back to any pinned line — saved per user across logins</li>
+      </ul>
+    </div>
+
+    <div class="about-card">
+      <h3>🤝 Handing off a finding means re-doing the work</h3>
+      <p class="pain-q">“Telling a teammate ‘look at 11:14:07 in wifimon’ over chat never lands — and to see it for themselves they have to redo the whole upload and extraction from scratch.”</p>
+      <div class="fix-head">How Log Parser solves it</div>
+      <ul>
+        <li><strong>Share a saved workspace</strong> with specific teammates — pick them by name from your user list — and they reopen the <em>identical</em> parsed logs in one click, nothing to re-upload or re-extract</li>
+        <li>Recipients get a <strong>“Shared with you”</strong> list on their home page — the workspace is just there, ready to load</li>
+        <li>Notes stay <strong>collaborative</strong>: they see your pinned lines &amp; notes right on the timeline and can add their own, so the investigation moves forward together instead of as a one-way hand-off</li>
+      </ul>
+    </div>
+
+    <div class="about-card">
+      <h3>🔐 Everyone's own script, on wide-open logs</h3>
+      <p class="pain-q">“We each keep a half-broken parsing script, and device logs really shouldn't be sitting around unprotected.”</p>
+      <div class="fix-head">How Log Parser solves it</div>
+      <ul>
+        <li>One shared, self-contained app on the LAN — <strong>nothing to install</strong> per person</li>
+        <li>Access limited to <strong>authorized users</strong>: hashed passwords, login throttling, hardened sessions</li>
+        <li>Each person's workspaces &amp; notes stay <strong>private by default</strong> — shared only with the teammates you choose — with a storage quota</li>
+      </ul>
+    </div>
+
+    <div class="about-card">
+      <h3>🗂 600+ files, and you need six</h3>
+      <p class="pain-q">“The dump has hundreds of logs and I only care about the Wi-Fi ones — picking them out by hand is a slog.”</p>
+      <div class="fix-head">How Log Parser solves it</div>
+      <ul>
+        <li>A <strong>searchable multi-select</strong> that scales to hundreds of sources</li>
+        <li>A one-click <strong>Wi-Fi Analysis preset</strong> pulls just the relevant logs</li>
+        <li>Toggle any source in or out instantly from the legend</li>
+      </ul>
+    </div>
+
+  </div>
+
+  <p class="about-foot">Log Parser · v{{ version }}</p>
+</div>
+
+<script>
+  (function () {
+    var btn = document.getElementById('share-btn');
+    var hint = document.getElementById('share-hint');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var url = window.location.origin + '{{ url_for("about") }}';
+      var done = function () { if (hint) { hint.hidden = false; setTimeout(function () { hint.hidden = true; }, 2500); } };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(done, done);
+      } else {
+        var t = document.createElement('textarea'); t.value = url; document.body.appendChild(t);
+        t.select(); try { document.execCommand('copy'); } catch (e) {} document.body.removeChild(t); done();
+      }
+    });
+  })();
+</script>
+
+{% endblock %}

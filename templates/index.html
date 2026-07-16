@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Log Parser — Upload{% endblock %}
+{% block content %}
+
+<section class="hero">
+  <h2>Correlate device logs on one timeline</h2>
+  <p>Load logs from an archive, several files, or a folder on this machine. View each file
+     separately or <strong>merge</strong> them into a single time-ordered, color-coded, searchable timeline.</p>
+</section>
+
+{% include "_upload_form.html" %}
+
+{% if sources %}
+<div class="card">
+  <div class="sources-head">
+    <h3 class="mono">Loaded sources <span class="pill">{{ sources|length }}</span></h3>
+    <a class="btn" href="{{ url_for('view') }}">▶ &nbsp; Analyze</a>
+  </div>
+  <div class="legend">
+    {% for s in sources %}
+      <span class="item"><span class="swatch" style="background: {{ s.color }};"></span>{{ s.name }} <span class="count">({{ s.line_count }} lines)</span></span>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

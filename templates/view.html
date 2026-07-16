@@ -1,0 +1,1220 @@
+{% extends "base.html" %}
+{% block title %}Log Parser — View{% endblock %}
+{% block content %}
+
+{# ---- Save current parse as a workspace (hidden when viewing a saved one) ---- #}
+{% if loaded_workspace %}
+<div class="card loaded-banner">
+  <span class="lb-icon">✓</span>
+  <span>Viewing saved workspace <strong>{{ loaded_workspace }}</strong></span>
+  <a class="btn secondary" href="{{ url_for('index') }}">← Back to workspaces</a>
+</div>
+{% else %}
+<div class="card save-ws-card">
+  <form method="POST" action="{{ url_for('workspace_save') }}" class="save-ws">
+    <label for="ws-name">Save this parse as a workspace</label>
+    <div class="actions">
+      <input type="text" id="ws-name" name="name" placeholder="e.g. wifi-down-2026-05-05" required />
+      <label class="source-toggle"><input type="checkbox" name="overwrite" value="1" /> Replace if exists</label>
+      <button type="submit"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg> &nbsp; Save workspace</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+<div class="card controls">
+  <form method="GET" action="{{ url_for('view') }}" id="controls-form">
+    <input type="hidden" name="lgset" value="{{ legend_ids_str }}">
+    <input type="hidden" name="level" value="{{ level }}">
+
+    {# Row 1 — view mode (segmented) + apply/clear #}
+    <div class="ctl-row ctl-top">
+      <div class="segmented" role="group" aria-label="View mode">
+        <label class="seg {{ 'on' if mode != 'separate' }}">
+          <input type="radio" name="mode" value="merge" {{ 'checked' if mode != 'separate' }}> Merged
+        </label>
+        <label class="seg {{ 'on' if mode == 'separate' }}">
+          <input type="radio" name="mode" value="separate" {{ 'checked' if mode == 'separate' }}> Separate
+        </label>
+      </div>
+      <div class="ctl-spacer"></div>
+      <span class="auto-hint">Changes apply automatically</span>
+      <a class="btn secondary" href="{{ url_for('view') }}">Clear</a>
+    </div>
+
+    {# Row 2 — filters #}
+    <div class="ctl-row ctl-filters">
+      <div class="field">
+        <label for="start">Start time (UTC)</label>
+        <input type="text" id="start" name="start" value="{{ start_raw }}" placeholder="2026-05-05 11:14:00" />
+      </div>
+      <div class="field">
+        <label for="end">End time (UTC)</label>
+        <input type="text" id="end" name="end" value="{{ end_raw }}" placeholder="2026-05-05 11:16:00" />
+      </div>
+      <div class="field field-grow">
+        <label for="q">Message contains</label>
+        <input type="text" id="q" name="q" value="{{ q_raw }}" placeholder="e.g. brlan0 down" />
+      </div>
+      <div class="field field-grow">
+        <label for="jump">Global search <span class="hint">(and jump to the match)</span></label>
+        <input type="text" id="jump" name="jump" value="{{ jump_raw }}" placeholder="paste or type part of a log line" />
+      </div>
+      {% if paginate_enabled %}
+      <div class="field field-sm">
+        <label for="page_size">Page size</label>
+        <input type="number" id="page_size" name="page_size" value="{{ page_size }}" min="50" max="5000" step="50" />
+      </div>
+      {% endif %}
+    </div>
+
+    {# Row 3 — sources (collapsed searchable multi-select) #}
+    <details class="sources-details">
+      <summary>Sources — <strong id="src-count">{{ selected_ids|length }}</strong> of {{ all_sources|length }} selected
+        <span class="hint">(search &amp; pick which to include)</span></summary>
+
+      <div class="source-select" id="source-select">
+        <div class="ss-search-row">
+          <input type="text" id="ss-search" class="ss-search"
+                 placeholder="🔍  Filter {{ all_sources|length }} sources by name…" autocomplete="off" />
+          <span class="ss-summary" id="ss-summary">{{ selected_ids|length }} of {{ all_sources|length }} selected</span>
+        </div>
+        <div class="ss-controls">
+          <button type="button" class="btn secondary" data-act="all">Select all</button>
+          <button type="button" class="btn secondary" data-act="visible">Select shown</button>
+          <button type="button" class="btn secondary" data-act="none">Clear</button>
+          <span class="ss-empty" id="ss-empty" hidden>No sources match your filter.</span>
+        </div>
+        <div class="ss-list" id="ss-list">
+          {% for s in all_sources %}
+            <label class="ss-item" data-name="{{ s.name|lower }}">
+              <input type="checkbox" name="src" value="{{ s.source_id }}" {{ 'checked' if s.source_id in selected_ids }}>
+              <span class="swatch" style="background: {{ s.color }};"></span>
+              <span class="ss-name">{{ s.name }}</span>
+              <span class="count">{{ s.line_count }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+    </details>
+
+    {# Row 4 — presets + export (footer) #}
+    <div class="ctl-row ctl-footer">
+      <div class="ctl-inline" id="preset-bar">
+        <span class="ctl-label">Presets</span>
+        {% for key, p in presets.items() %}
+          <a class="chip {{ 'chip-on' if active_preset == key }}"
+             href="{{ url_for('view', preset=key, mode=mode, start=start_raw, end=end_raw, q=q_raw, page_size=page_size, jump=jump_raw, level=level) }}">{{ p.label }}</a>
+        {% endfor %}
+        <a class="chip {{ 'chip-on' if all_selected and not active_preset }}" href="{{ url_for('view', all=1, mode=mode, start=start_raw, end=end_raw, q=q_raw, page_size=page_size, jump=jump_raw, level=level) }}">All sources</a>
+      </div>
+      <div class="ctl-inline">
+        <span class="ctl-label">Export</span>
+        <a class="chip" href="{{ url_for('export', format='txt', **export_base) }}"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg> .txt</a>
+        <a class="chip" href="{{ url_for('export', format='csv', **export_base) }}"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg> .csv</a>
+      </div>
+    </div>
+  </form>
+</div>
+
+<script>
+  (function () {
+    var form = document.getElementById('controls-form');
+    if (!form) return;
+
+    function formURL() {
+      var p = new URLSearchParams();
+      var m = form.querySelector('input[name="mode"]:checked');
+      if (m) p.append('mode', m.value);
+      ['start', 'end', 'q', 'page_size', 'lgset', 'jump', 'level'].forEach(function (name) {
+        var el = form.querySelector('[name="' + name + '"]');
+        if (el) p.append(name, el.value);
+      });
+      // In Separate view keep the active file tab, which lives in the URL (not
+      // a form field). Without it a search / filter snaps back to the first
+      // source, so a match in the file you're actually viewing is never found.
+      if (m && m.value === 'separate') {
+        var act = new URLSearchParams(location.search).get('active');
+        if (act) p.append('active', act);
+      }
+      // Compact source selection so hundreds of sources never overflow the URL.
+      var boxes = form.querySelectorAll('input[name="src"]');
+      var checked = [], unchecked = [];
+      boxes.forEach(function (b) { (b.checked ? checked : unchecked).push(b.value); });
+      if (boxes.length > 0 && checked.length * 2 > boxes.length) {
+        p.append('all', '1');
+        unchecked.forEach(function (v) { p.append('excl', v); });
+      } else {
+        checked.forEach(function (v) { p.append('src', v); });
+      }
+      return form.action.split('?')[0] + '?' + p.toString();
+    }
+    function setBusy(on) {
+      var r = document.getElementById('results');
+      if (r) r.style.opacity = on ? '0.45' : '';
+    }
+    // Capture the current source selection as the legend working set so a
+    // manual pick shows up as toggleable chips above the logs.
+    function setLgsetToChecked() {
+      var f = form.querySelector('input[name="lgset"]');
+      if (!f) return;
+      var ids = [];
+      form.querySelectorAll('input[name="src"]:checked').forEach(function (b) { ids.push(b.value); });
+      // The legend working-set is only rendered as clickable chips when it is
+      // small (<=40). Storing hundreds of ids here would push the request URL
+      // past the server's request-line limit and silently 400 the fetch
+      // (leaving the logs / pager stale), so cap it to an empty marker.
+      f.value = ids.length <= 40 ? ids.join(',') : '';
+    }
+
+    // Reload ONLY the results section (legend + logs + pagers) via fetch,
+    // keeping the page and scroll position intact. A sequence guard makes sure
+    // a slower earlier request can't overwrite a newer one.
+    // Scroll to the START (first row) or END (last row) of the actual log
+    // lines on the freshly loaded page — not the browser top, which would show
+    // the header / filter controls instead of the logs.
+    function scrollToLog(where) {
+      if (where === 'bottom') {
+        // "prev" goes to the dead bottom of the page (last line + bottom pager).
+        window.scrollTo(0, document.documentElement.scrollHeight);
+        return;
+      }
+      // 'top': land a little ABOVE the first log line — on the Sources bar when
+      // present (checked in priority order, since the sev/jump bars sit higher
+      // in the DOM), else the nearest bar above the table, else the first row.
+      var anchor = document.querySelector('#results .src-legend')
+                || document.querySelector('#results .legend')
+                || document.querySelector('#results .cat-bar')
+                || document.querySelector('#results .sev-bar');
+      if (!anchor) {
+        var frows = document.querySelectorAll('#results .logtable tbody tr');
+        anchor = frows.length ? frows[0] : document.getElementById('results');
+      }
+      if (anchor) anchor.scrollIntoView({ block: 'start' });
+    }
+    var reqSeq = 0;
+    function loadView(url, push, scrollTo) {
+      var mySeq = ++reqSeq;
+      setBusy(true);
+      fetch(url, { headers: { 'X-Requested-With': 'fetch' }, credentials: 'same-origin' })
+        .then(function (r) {
+          // Never swallow a non-OK response (e.g. a 400 for an over-long URL):
+          // falling through would leave the logs / pager silently stale.
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.text();
+        })
+        .then(function (html) {
+          if (mySeq !== reqSeq) return;          // a newer request superseded this one
+          var doc = new DOMParser().parseFromString(html, 'text/html');
+          var fresh = doc.getElementById('results');
+          var cur = document.getElementById('results');
+          if (fresh && cur) cur.innerHTML = fresh.innerHTML;
+          syncControls(doc);
+          if (push !== false) history.pushState({ lp: 1 }, '', url);
+          setBusy(false);
+          // Explicit page navigation wins: next -> start of the logs, prev ->
+          // end of the logs. Otherwise centre on a jump / locate target.
+          if (scrollTo === 'top') {
+            requestAnimationFrame(function () { scrollToLog('top'); });
+          } else if (scrollTo === 'bottom') {
+            requestAnimationFrame(function () { scrollToLog('bottom'); });
+          } else {
+            var tgt = document.getElementById('jump-target');
+            if (tgt) tgt.scrollIntoView({ block: 'center' });
+          }
+        })
+        .catch(function () { window.location = url; });
+    }
+
+    // Mirror the fetched control state onto the live (un-swapped) controls.
+    function syncControls(doc) {
+      var dForm = doc.getElementById('controls-form');
+      if (!dForm) return;
+      // Rebuild the (potentially 600+ item) source list only when the checked
+      // set actually changed — skips a costly DOM swap on jump / paging.
+      var dList = doc.getElementById('ss-list');
+      var lList = document.getElementById('ss-list');
+      if (dList && lList) {
+        var sig = function (el) {
+          var v = [];
+          el.querySelectorAll('input[name="src"]:checked').forEach(function (b) { v.push(b.value); });
+          return v.join(',');
+        };
+        if (sig(dList) !== sig(lList)) lList.innerHTML = dList.innerHTML;
+      }
+      var dMode = dForm.querySelector('input[name="mode"]:checked');
+      if (dMode) {
+        form.querySelectorAll('input[name="mode"]').forEach(function (r) { r.checked = (r.value === dMode.value); });
+        form.querySelectorAll('.segmented .seg').forEach(function (s) { s.classList.remove('on'); });
+        var ck = form.querySelector('input[name="mode"]:checked');
+        if (ck) { var seg = ck.closest('.seg'); if (seg) seg.classList.add('on'); }
+      }
+      ['lgset', 'start', 'end', 'q', 'page_size', 'jump', 'level'].forEach(function (name) {
+        var d = dForm.querySelector('[name="' + name + '"]');
+        var l = form.querySelector('[name="' + name + '"]');
+        if (d && l && document.activeElement !== l) l.value = d.value;
+      });
+      // Sync preset/All-sources highlight from the fetched controls.
+      var dp = doc.getElementById('preset-bar');
+      var lp = document.getElementById('preset-bar');
+      if (dp && lp) lp.innerHTML = dp.innerHTML;
+      var ds = doc.getElementById('ss-summary');
+      var ls = document.getElementById('ss-summary');
+      if (ds && ls) ls.textContent = ds.textContent;
+      applySearchFilter();
+      updateSummary();
+    }
+
+    // Auto-apply: any named control change reloads the results.
+    form.addEventListener('change', function (ev) {
+      if (!ev.target || !ev.target.name) return;   // ignore the unnamed search box
+      if (ev.target.name === 'src') { setLgsetToChecked(); updateSummary(); }  // instant count
+      loadView(formURL());
+    });
+
+    // Keep the count fresh whenever the Sources panel is opened.
+    var srcDetails = document.querySelector('.sources-details');
+    if (srcDetails) srcDetails.addEventListener('toggle', function () { updateSummary(); });
+
+    // Delegated navigation: legend chips, /view links (pagers, presets), file picker.
+    document.addEventListener('click', function (ev) {
+      var sev = ev.target.closest && ev.target.closest('.sev-chip');
+      if (sev) {
+        ev.preventDefault();
+        var lf = form.querySelector('[name="level"]');
+        if (lf) lf.value = sev.getAttribute('data-level') || '';
+        loadView(formURL());
+        return;
+      }
+      var clr = ev.target.closest && ev.target.closest('#jump-clear');
+      if (clr) {
+        ev.preventDefault();
+        var jf = form.querySelector('[name="jump"]');
+        if (jf) jf.value = '';
+        loadView(formURL());
+        return;
+      }
+      var chip = ev.target.closest && ev.target.closest('.sl-chip');
+      if (chip) {
+        ev.preventDefault();
+        var id = chip.getAttribute('data-src');
+        var box = form.querySelector('input[name="src"][value="' + id + '"]');
+        if (box) { box.checked = !box.checked; loadView(formURL()); }
+        return;
+      }
+      var a = ev.target.closest && ev.target.closest('a');
+      if (a && a.pathname && /\/view$/.test(a.pathname)) {
+        ev.preventDefault();
+        loadView(a.href, true, a.getAttribute('data-scroll'));
+      }
+    });
+    // "Go to page N" form in the pager (delegated; survives result swaps).
+    document.addEventListener('submit', function (ev) {
+      var f = ev.target.closest && ev.target.closest('.pager-goto');
+      if (!f) return;
+      ev.preventDefault();
+      var inp = f.querySelector('input');
+      var n = parseInt(inp && inp.value, 10);
+      var max = parseInt(inp && inp.getAttribute('max'), 10) || 1;
+      if (!n || n < 1) n = 1;
+      if (n > max) n = max;
+      var base = f.getAttribute('data-base');
+      if (!base) return;
+      var u;
+      try { u = new URL(base, window.location.origin); } catch (e) { return; }
+      u.searchParams.set('page', String(n));
+      loadView(u.pathname + u.search, true, 'top');
+    });
+    document.addEventListener('change', function (ev) {
+      if (ev.target && ev.target.id === 'file-picker' && ev.target.value) loadView(ev.target.value);
+    });
+    // Modern searchable file dropdown (separate view). Delegated so it keeps
+    // working after #results fragment swaps.
+    function mfpClose(except) {
+      document.querySelectorAll('.mfp-pop:not([hidden])').forEach(function (p) {
+        if (p !== except) {
+          p.hidden = true;
+          var t = p.parentNode.querySelector('.mfp-trigger');
+          if (t) t.setAttribute('aria-expanded', 'false');
+        }
+      });
+    }
+    function mfpFilter(pop, q) {
+      q = (q || '').toLowerCase();
+      pop.querySelectorAll('.mfp-opt').forEach(function (o) {
+        o.hidden = !!q && (o.getAttribute('data-name') || '').indexOf(q) === -1;
+      });
+    }
+    document.addEventListener('click', function (ev) {
+      var trig = ev.target.closest && ev.target.closest('.mfp-trigger');
+      if (trig) {
+        var pop = trig.parentNode.querySelector('.mfp-pop');
+        var willOpen = pop.hidden;
+        mfpClose(willOpen ? pop : null);
+        pop.hidden = !willOpen;
+        trig.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+        if (willOpen) {
+          var s = pop.querySelector('.mfp-search');
+          if (s) { s.value = ''; mfpFilter(pop, ''); setTimeout(function () { s.focus(); }, 10); }
+        }
+        return;
+      }
+      var opt = ev.target.closest && ev.target.closest('.mfp-opt');
+      if (opt && opt.getAttribute('data-url')) {
+        ev.preventDefault();
+        mfpClose(null);
+        loadView(opt.getAttribute('data-url'));
+        return;
+      }
+      if (!(ev.target.closest && ev.target.closest('.mfp-pop'))) mfpClose(null);
+    });
+    document.addEventListener('input', function (ev) {
+      if (ev.target && ev.target.classList && ev.target.classList.contains('mfp-search')) {
+        var pop = ev.target.closest('.mfp-pop');
+        if (pop) mfpFilter(pop, ev.target.value);
+      }
+    });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape') mfpClose(null);
+    });
+    window.addEventListener('popstate', function () { loadView(location.href, false); });
+
+    // Searchable source multi-select (client filter + bulk apply).
+    var summaryEl = document.getElementById('ss-summary');
+    function updateSummary() {
+      var list = document.getElementById('ss-list');
+      if (!list) return;
+      var bs = list.querySelectorAll('input[name="src"]');
+      var sel = 0; bs.forEach(function (b) { if (b.checked) sel++; });
+      if (summaryEl) summaryEl.textContent = sel + ' of ' + bs.length + ' selected';
+      var cnt = document.getElementById('src-count');
+      if (cnt) cnt.textContent = sel;
+    }
+    function applySearchFilter() {
+      var search = document.getElementById('ss-search');
+      var list = document.getElementById('ss-list');
+      var emptyMsg = document.getElementById('ss-empty');
+      if (!search || !list) return;
+      var q = search.value.trim().toLowerCase();
+      var items = list.querySelectorAll('.ss-item');
+      var shown = 0;
+      items.forEach(function (it) {
+        var m = !q || (it.getAttribute('data-name') || '').indexOf(q) !== -1;
+        it.hidden = !m; if (m) shown++;
+      });
+      if (emptyMsg) emptyMsg.hidden = shown !== 0;
+    }
+    var searchEl = document.getElementById('ss-search');
+    if (searchEl) searchEl.addEventListener('input', applySearchFilter);
+    var ctrls = document.querySelector('.ss-controls');
+    if (ctrls) ctrls.addEventListener('click', function (ev) {
+      var act = ev.target.getAttribute('data-act');
+      if (!act) return;
+      ev.preventDefault();
+      var list = document.getElementById('ss-list');
+      if (!list) return;
+      var boxes = list.querySelectorAll('input[name="src"]');
+      if (act === 'all') boxes.forEach(function (b) { b.checked = true; });
+      else if (act === 'none') boxes.forEach(function (b) { b.checked = false; });
+      else if (act === 'visible') list.querySelectorAll('.ss-item').forEach(function (it) {
+        if (!it.hidden) { var b = it.querySelector('input'); if (b) b.checked = true; }
+      });
+      updateSummary();
+      setLgsetToChecked();
+      loadView(formURL());
+    });
+    updateSummary();
+    var initTgt = document.getElementById('jump-target');
+    if (initTgt) initTgt.scrollIntoView({ block: 'center' });
+    window.__lpLoadView = loadView;   // let the notes panel reuse in-page navigation
+    window.__lpFormURL = formURL;     // and the current filter/selection URL
+  })();
+</script>
+
+{# ---- Investigation notes: floating button, slide-in panel, note popover ---- #}
+<button type="button" id="notes-fab" class="notes-fab" title="Your saved notes &amp; bookmarks">
+  <span class="nf-star">★</span> Notes
+  <span class="nf-badge" id="notes-badge" {{ 'hidden' if not bookmark_count }}>{{ bookmark_count }}</span>
+</button>
+
+<div class="notes-overlay" id="notes-overlay" hidden></div>
+<aside class="notes-panel" id="notes-panel" hidden aria-label="Saved notes">
+  <header class="np-head">
+    <h3>★ Investigation notes <span class="np-count" id="np-count">{{ bookmark_count }}</span></h3>
+    <button type="button" class="np-close" id="notes-close" aria-label="Close">✕</button>
+  </header>
+  <div class="np-tools">
+    <input type="text" id="np-filter" class="np-filter" placeholder="Filter notes…" autocomplete="off">
+    <a class="btn secondary np-exp" href="{{ url_for('bookmarks_export', format='txt') }}"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg> .txt</a>
+    <a class="btn secondary np-exp" href="{{ url_for('bookmarks_export', format='md') }}"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg> .md</a>
+    <a class="btn secondary np-exp" href="{{ url_for('bookmarks_export', format='csv') }}"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg> .csv</a>
+  </div>
+  <div class="np-list" id="np-list">
+    <div class="np-empty">Loading…</div>
+  </div>
+</aside>
+
+{# Note editor popover (anchored near a pinned line) #}
+<div class="bm-popover" id="bm-popover" hidden>
+  <div class="bmp-head">
+    <span class="bmp-title">★ Note</span>
+    <button type="button" class="bmp-x" id="bmp-close" aria-label="Close">✕</button>
+  </div>
+  <div class="bmp-snippet" id="bmp-snippet"></div>
+  <textarea id="bmp-note" class="bmp-note" rows="4" placeholder="Why does this line matter?  Press Enter for a new line…"></textarea>
+  <div class="bmp-hint">Multi-line — <strong>Enter</strong> for a new line · <strong>Ctrl/⌘+Enter</strong> to save</div>
+  <div class="bmp-actions">
+    <button type="button" class="btn danger" id="bmp-remove" hidden>Remove</button>
+    <span class="bmp-spacer"></span>
+    <button type="button" class="btn secondary" id="bmp-cancel">Cancel</button>
+    <button type="button" class="btn" id="bmp-save">Save note</button>
+  </div>
+</div>
+
+{# ---- Floating match navigator for "Jump to line" ---- #}
+<div class="find-bar" id="find-bar" hidden>
+  <span class="fb-icon"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M20 20l-3.5-3.5"/></svg></span>
+  <input type="text" class="fb-q" id="fb-q" placeholder="search text…" aria-label="Search text — edit to re-search" autocomplete="off" spellcheck="false" />
+  <span class="fb-count" id="fb-count"></span>
+  <button type="button" class="fb-btn" id="fb-prev" title="Previous match (Shift+Enter or Shift+F3)" aria-label="Previous match">◀</button>
+  <button type="button" class="fb-btn" id="fb-next" title="Next match (Enter or F3)" aria-label="Next match">▶</button>
+  <button type="button" class="fb-btn fb-x" id="fb-clear" title="Clear (Esc)" aria-label="Clear jump">✕</button>
+</div>
+
+{# ---- Floating notes navigator (step through bookmarks) ---- #}
+<div class="find-bar notes-nav" id="notes-nav" hidden>
+  <span class="fb-icon nn-star">★</span>
+  <span class="fb-q" id="nn-label"></span>
+  <span class="fb-count" id="nn-count"></span>
+  <span class="nn-warn" id="nn-warn" hidden></span>
+  <button type="button" class="fb-mini" id="nn-reveal" hidden>Show</button>
+  <button type="button" class="fb-btn" id="nn-prev" title="Previous note" aria-label="Previous note">◀</button>
+  <button type="button" class="fb-btn" id="nn-next" title="Next note" aria-label="Next note">▶</button>
+  <button type="button" class="fb-btn fb-x" id="nn-clear" title="Close (Esc)" aria-label="Close">✕</button>
+</div>
+
+<div id="results">
+{% include "_results.html" %}
+</div>{# results #}
+
+<script>
+  // ---- Investigation notes / bookmarks ---------------------------------
+  (function () {
+    var URL_LIST = "{{ url_for('bookmarks_list') }}";
+    var URL_ADD = "{{ url_for('bookmark_add') }}";
+    var URL_DEL = "{{ url_for('bookmark_delete') }}";
+    var URL_VIEW = "{{ url_for('view') }}";
+
+    var fab = document.getElementById('notes-fab');
+    var panel = document.getElementById('notes-panel');
+    var overlay = document.getElementById('notes-overlay');
+    var pop = document.getElementById('bm-popover');
+    var listEl = document.getElementById('np-list');
+    var badge = document.getElementById('notes-badge');
+    var npCount = document.getElementById('np-count');
+    var filterEl = document.getElementById('np-filter');
+
+    var cache = {};          // key -> bookmark object
+    var loaded = false;
+    var cur = null;          // current pin target for the popover
+    var pinnedSet = {};      // keyOf(src,seq) -> true for every pinned line
+    var memberOwner = {};    // keyOf(src,seq) -> owning bookmark (anchor or member)
+    var justRangeDrag = false;
+
+    function keyOf(src, seq) { return src + '\u0000' + seq; }
+    function esc(s) {
+      return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function post(url, data) {
+      var body = new URLSearchParams();
+      Object.keys(data).forEach(function (k) { body.append(k, data[k] == null ? '' : data[k]); });
+      return fetch(url, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString()
+      }).then(function (r) { return r.json(); });
+    }
+    function setCount(n) {
+      if (badge) { badge.textContent = n; badge.hidden = !n; }
+      if (npCount) npCount.textContent = n;
+    }
+
+    function loadCache(force) {
+      if (loaded && !force) return Promise.resolve();
+      return fetch(URL_LIST, { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          cache = {};
+          (d.bookmarks || []).forEach(function (b) { cache[b.id] = b; });
+          rebuildIndex();
+          loaded = true;
+          setCount(Object.keys(cache).length);
+        });
+    }
+
+    // Mark a pin button + its row as bookmarked (or not).
+    function markRow(btn, on) {
+      if (!btn) return;
+      btn.classList.toggle('on', on);
+      btn.textContent = on ? '\u2605' : '\u2606';   // ★ / ☆
+      btn.title = on ? 'Edit note' : 'Pin this line — or drag the timestamps down to bookmark a range';
+      var tr = btn.closest('tr');
+      if (tr) tr.classList.toggle('bookmarked', on);
+    }
+    // A record's identity key: the unique source_id when known (new bookmarks),
+    // else the basename (legacy). One map holds both key styles.
+    function recKey(rec) {
+      if (rec.srcid !== undefined && rec.srcid !== null && rec.srcid !== '')
+        return 'i' + rec.srcid + '\u0000' + rec.seq;
+      return 'n' + (rec.source || '') + '\u0000' + rec.seq;
+    }
+    // Candidate keys for a rendered pin button (by srcid and by basename).
+    function pinKeys(btn) {
+      var seq = btn.getAttribute('data-seq');
+      var sid = btn.getAttribute('data-srcid');
+      var keys = ['n' + (btn.getAttribute('data-src') || '') + '\u0000' + seq];
+      if (sid !== null && sid !== '') keys.unshift('i' + sid + '\u0000' + seq);
+      return keys;
+    }
+    function rebuildIndex() {
+      pinnedSet = {}; memberOwner = {};
+      Object.keys(cache).forEach(function (k) {
+        var b = cache[k];
+        var bk = recKey(b);
+        pinnedSet[bk] = true; memberOwner[bk] = b;
+        (b.members || []).forEach(function (m) {
+          var mk = recKey(m);
+          pinnedSet[mk] = true; memberOwner[mk] = b;
+        });
+      });
+    }
+    function ownerOf(btn) {
+      var ks = pinKeys(btn);
+      for (var i = 0; i < ks.length; i++) if (memberOwner[ks[i]]) return memberOwner[ks[i]];
+      return null;
+    }
+    // Re-sync every visible pin button against the pinned set (after swaps).
+    function resyncRows() {
+      document.querySelectorAll('#results .pin-btn').forEach(function (btn) {
+        var ks = pinKeys(btn), on = false;
+        for (var i = 0; i < ks.length; i++) if (pinnedSet[ks[i]]) { on = true; break; }
+        markRow(btn, on);
+      });
+    }
+
+    // ---- Note popover ----
+    function positionPopover(btn) {
+      pop.hidden = false;
+      autoGrowNote();
+      var r = btn.getBoundingClientRect();
+      var top = window.scrollY + r.bottom + 6;
+      var left = window.scrollX + r.left;
+      var pw = pop.offsetWidth || 360;
+      if (left + pw > window.scrollX + document.documentElement.clientWidth - 12)
+        left = window.scrollX + document.documentElement.clientWidth - pw - 12;
+      pop.style.top = top + 'px';
+      pop.style.left = Math.max(8, left) + 'px';
+      setTimeout(function () { document.getElementById('bmp-note').focus(); }, 20);
+    }
+    // Render the popover for a single line, or a range (members length > 1).
+    function openNote(cfg) {
+      cur = cfg;
+      var n = cfg.members ? cfg.members.length : 1;
+      var rangeTag = n > 1 ? '<span class="bmp-range">' + n + ' lines</span>' : '';
+      document.getElementById('bmp-snippet').innerHTML =
+        '<span class="bmp-src" style="background:' + esc(cfg.color || '#888') + '">' +
+        esc(cfg.src) + '</span> <span class="bmp-ts">' + esc(cfg.ts || '') + '</span>' + rangeTag +
+        '<div class="bmp-text">' + esc((cfg.text || '').slice(0, 600)) + '</div>';
+      document.getElementById('bmp-note').value = cfg.note || '';
+      document.getElementById('bmp-remove').hidden = !cfg.existing;
+      positionPopover(cfg.btn);
+    }
+    // Open the note for a pinned line — single, or the range it belongs to.
+    function openPopover(btn) {
+      var owner = ownerOf(btn);
+      if (owner && owner.members && owner.members.length > 1) {
+        openNote({
+          btn: btn, id: owner.id, src: owner.source, srcid: owner.srcid,
+          seq: owner.seq, ts: owner.ts, epoch: owner.epoch, color: owner.color,
+          text: owner.text, members: owner.members, note: owner.note || '', existing: true
+        });
+        return;
+      }
+      var tr = btn.closest('tr');
+      var msg = tr ? tr.querySelector('.msg') : null;
+      var sid = btn.getAttribute('data-srcid');
+      openNote({
+        btn: btn, id: owner ? owner.id : null,
+        src: btn.getAttribute('data-src'),
+        srcid: (sid !== null && sid !== '') ? parseInt(sid, 10) : null,
+        seq: btn.getAttribute('data-seq'),
+        ts: btn.getAttribute('data-ts'), epoch: btn.getAttribute('data-epoch'),
+        color: btn.getAttribute('data-color'),
+        text: msg ? msg.innerText.trim() : '', members: null,
+        note: owner ? (owner.note || '') : '', existing: !!owner
+      });
+    }
+    // Open the note for a freshly drag-selected range of rows.
+    function openRangeFromRows(rows, anchorBtn) {
+      var members = [];
+      rows.forEach(function (tr) {
+        var pin = tr.querySelector('.pin-btn');
+        var m = tr.querySelector('.msg');
+        if (pin) {
+          var sid = pin.getAttribute('data-srcid');
+          members.push({
+            source: pin.getAttribute('data-src'),
+            srcid: (sid !== null && sid !== '') ? parseInt(sid, 10) : null,
+            seq: parseInt(pin.getAttribute('data-seq'), 10),
+            text: m ? m.innerText.trim() : ''
+          });
+        }
+      });
+      if (members.length < 2 || !anchorBtn) return;
+      var first = members[0];
+      var owner = ownerOf(anchorBtn);
+      openNote({
+        btn: anchorBtn, id: owner ? owner.id : null,
+        src: String(first.source), srcid: first.srcid, seq: first.seq,
+        ts: anchorBtn.getAttribute('data-ts'), epoch: anchorBtn.getAttribute('data-epoch'),
+        color: anchorBtn.getAttribute('data-color'),
+        text: members.map(function (m) { return m.text; }).join('\n'),
+        members: members.map(function (m) { return { source: m.source, srcid: m.srcid, seq: m.seq }; }),
+        note: owner ? (owner.note || '') : '', existing: !!owner
+      });
+    }
+    function closePopover() { pop.hidden = true; cur = null; }
+    function autoGrowNote() {
+      var ta = document.getElementById('bmp-note');
+      if (!ta) return;
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(Math.max(ta.scrollHeight, 68), 280) + 'px';
+    }
+
+    function saveCur() {
+      if (!cur) return;
+      var note = document.getElementById('bmp-note').value;
+      var data = {
+        source: cur.src, srcid: (cur.srcid == null ? '' : cur.srcid),
+        seq: cur.seq, ts: cur.ts, epoch: cur.epoch,
+        text: cur.text, note: note, color: cur.color
+      };
+      if (cur.members && cur.members.length > 1) {
+        data.members = JSON.stringify(cur.members.map(function (m) {
+          return { source: m.source, srcid: m.srcid, seq: m.seq };
+        }));
+      }
+      post(URL_ADD, data).then(function (d) {
+        if (d && d.ok) {
+          cache[d.bookmark.id] = d.bookmark;
+          rebuildIndex(); resyncRows();
+          setCount(d.count);
+          if (!panel.hidden) renderList();
+          closePopover();
+        }
+      });
+    }
+    function removeCur() {
+      if (!cur) return;
+      var data = cur.id ? { id: cur.id }
+        : { source: cur.src, srcid: (cur.srcid == null ? '' : cur.srcid), seq: cur.seq };
+      post(URL_DEL, data).then(function (d) {
+        if (cur.id && cache[cur.id]) delete cache[cur.id];
+        rebuildIndex(); resyncRows();
+        if (d && typeof d.count === 'number') setCount(d.count);
+        if (!panel.hidden) renderList();
+        closePopover();
+      });
+    }
+
+    // ---- Notes side panel ----
+    function renderList() {
+      var q = (filterEl && filterEl.value || '').trim().toLowerCase();
+      var items = Object.keys(cache).map(function (k) { return cache[k]; });
+      items.sort(function (a, b) { return (b.created_at || '').localeCompare(a.created_at || ''); });
+      if (q) items = items.filter(function (b) {
+        return ((b.note || '') + ' ' + (b.text || '') + ' ' + (b.source || '')).toLowerCase().indexOf(q) !== -1;
+      });
+      if (!items.length) {
+        listEl.innerHTML = '<div class="np-empty">' +
+          (Object.keys(cache).length ? 'No notes match your filter.'
+            : 'No bookmarks yet. Click the ☆ beside any log line to pin it.') + '</div>';
+        return;
+      }
+      listEl.innerHTML = items.map(function (b) {
+        var ctx = b.context ? '<span class="ni-ctx">' + esc(b.context) + '</span>' : '';
+        var n = (b.members && b.members.length) ? b.members.length : 0;
+        var rangeTag = n > 1 ? '<span class="ni-range">' + n + ' lines</span>' : '';
+        return '<div class="note-item" data-id="' + esc(b.id) + '">' +
+          '<div class="ni-top"><span class="ni-src">' + esc(b.source) + '</span>' +
+          '<span class="ni-ts">' + esc(b.ts || '') + '</span>' + rangeTag + ctx + '</div>' +
+          (b.note ? '<div class="ni-note">' + esc(b.note) + '</div>' : '') +
+          '<div class="ni-text">' + esc((b.text || '').slice(0, 240)) + '</div>' +
+          '<div class="ni-actions">' +
+          '<button type="button" class="btn secondary ni-go">Go to line</button>' +
+          '<button type="button" class="btn secondary ni-del">Delete</button>' +
+          '</div></div>';
+      }).join('');
+    }
+    function openPanel() {
+      panel.hidden = false; overlay.hidden = false;
+      document.body.classList.add('notes-open');
+      loadCache(true).then(function () { renderList(); resyncRows(); });
+    }
+    function closePanel() {
+      panel.hidden = true; overlay.hidden = true;
+      document.body.classList.remove('notes-open');
+    }
+    // Locate a pinned line among the rows already rendered on screen.
+    function findVisibleRow(b) {
+      var btns = document.querySelectorAll('#results .pin-btn');
+      var useId = (b.srcid !== undefined && b.srcid !== null && b.srcid !== '');
+      for (var i = 0; i < btns.length; i++) {
+        var btn = btns[i];
+        if (String(btn.getAttribute('data-seq')) !== String(b.seq)) continue;
+        if (useId) {
+          if (String(btn.getAttribute('data-srcid')) === String(b.srcid)) return btn.closest('tr');
+        } else if (btn.getAttribute('data-src') === String(b.source)) {
+          return btn.closest('tr');
+        }
+      }
+      return null;
+    }
+    function flashRow(row) {
+      if (!row) return;
+      row.scrollIntoView({ block: 'center' });
+      // A freshly-rendered match row animates via CSS on its own; an already
+      // on-screen row (bookmark fast path) gets a transient pulse class.
+      if (!row.classList.contains('match-row')) {
+        row.classList.remove('lp-arrive');
+        void row.offsetWidth;               // restart the animation
+        row.classList.add('lp-arrive');
+        setTimeout(function () { row.classList.remove('lp-arrive'); }, 1000);
+      }
+    }
+    // Draw a rounded, glowing scope frame over a span of rows (overlay so it
+    // isn't limited by the table's collapsed borders).
+    function drawScopeOverlay(container, firstRow, lastRow, count) {
+      var cRect = container.getBoundingClientRect();
+      var fRect = firstRow.getBoundingClientRect();
+      var lRect = lastRow.getBoundingClientRect();
+      var pad = 3;
+      var ov = document.createElement('div');
+      ov.className = 'range-overlay';
+      ov.style.top = (fRect.top - cRect.top - pad) + 'px';
+      ov.style.left = (fRect.left - cRect.left - pad) + 'px';
+      ov.style.width = (fRect.width + pad * 2) + 'px';
+      ov.style.height = (lRect.bottom - fRect.top + pad * 2) + 'px';
+      var lbl = document.createElement('span');
+      lbl.className = 'ro-label';
+      lbl.textContent = '\u2605 note scope \u00b7 ' + count + ' line' + (count === 1 ? '' : 's');
+      ov.appendChild(lbl);
+      container.appendChild(ov);
+    }
+    // Highlight a bookmark's lines. For a range, tint the interleaved lines
+    // faintly and draw a rounded scope frame around the whole span.
+    function highlightMembers(b) {
+      var results = document.getElementById('results');
+      var oldOv = results && results.querySelector('.range-overlay');
+      if (oldOv && oldOv.parentNode) oldOv.parentNode.removeChild(oldOv);
+      document.querySelectorAll('#results tr.range-hit, #results tr.range-frame')
+        .forEach(function (tr) { tr.classList.remove('range-hit', 'range-frame'); });
+      var mems = (b.members && b.members.length) ? b.members : [{ source: b.source, srcid: b.srcid, seq: b.seq }];
+      var keyset = {};
+      mems.forEach(function (m) { keyset[recKey(m)] = true; });
+      var rows = Array.prototype.slice.call(
+        document.querySelectorAll('#results .logtable tbody tr'))
+        .filter(function (tr) { return tr.querySelector('.pin-btn'); });
+      var idxs = [];
+      rows.forEach(function (tr, i) {
+        var ks = pinKeys(tr.querySelector('.pin-btn'));
+        for (var j = 0; j < ks.length; j++) { if (keyset[ks[j]]) { idxs.push(i); break; } }
+      });
+      if (!idxs.length) { var t = document.getElementById('jump-target'); if (t) flashRow(t); return; }
+      idxs.forEach(function (i) { rows[i].classList.add('range-hit'); });
+      if (mems.length > 1) {
+        var lo = idxs[0], hi = idxs[idxs.length - 1];
+        for (var i = lo; i <= hi; i++) rows[i].classList.add('range-frame');
+        if (results) drawScopeOverlay(results, rows[lo], rows[hi], mems.length);
+      }
+      flashRow(rows[idxs[0]]);
+    }
+    function gotoBookmark(b) {
+      if (!b) return;
+      closePanel();
+      showNotesNav(b);   // reveal / update the notes navigator for stepping
+      setNavWarn(null);  // optimistic: clear any prior notice
+      // Fast path: the pinned line is already rendered — scroll to it instantly.
+      var row = findVisibleRow(b);
+      if (row) { highlightMembers(b); return; }
+      // Otherwise fetch a compact fragment and locate the exact line by
+      // (source, seq) — no text jump, so the find bar never appears.
+      var base = window.__lpFormURL ? window.__lpFormURL() : (URL_VIEW + '?');
+      var parts = base.split('?');
+      var p = new URLSearchParams(parts[1] || '');
+      ['start', 'end', 'q', 'level', 'jump', 'jumpn', 'page', 'locsrc', 'locsrcid', 'loctext'].forEach(function (k) { p.delete(k); });
+      if (b.srcid !== undefined && b.srcid !== null && b.srcid !== '') {
+        p.set('locsrcid', String(b.srcid));   // unique source — exact match
+      } else {
+        p.set('locsrc', b.source);            // legacy — basename + line text
+        p.set('loctext', (b.text || '').split('\n')[0]);
+      }
+      p.set('locseq', String(b.seq));
+      p.set('frag', '1');
+      var url = parts[0] + '?' + p.toString();
+      var results = document.getElementById('results');
+      var cForm = document.getElementById('controls-form');
+      fetch(url, { headers: { 'X-Requested-With': 'fetch' }, credentials: 'same-origin' })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          var doc = new DOMParser().parseFromString(html, 'text/html');
+          var ls = doc.getElementById('locate-state');
+          var found = ls && ls.getAttribute('data-found') === '1';
+          if (found) {
+            if (results) results.innerHTML = html;   // show the located line
+            if (cForm) {
+              ['start', 'end', 'q', 'level', 'jump'].forEach(function (n) {
+                var el = cForm.querySelector('[name="' + n + '"]'); if (el) el.value = '';
+              });
+            }
+            highlightMembers(b);
+            setNavWarn(null);
+          } else {
+            // Line isn't in the current view — keep the view intact and say why.
+            var srcid = ls ? ls.getAttribute('data-srcid') : '';
+            var selected = ls && ls.getAttribute('data-selected') === '1';
+            setNavWarn((srcid && !selected) ? 'hidden' : 'missing', srcid, b);
+          }
+        })
+        .catch(function () {
+          if (window.__lpLoadView && window.__lpFormURL) window.__lpLoadView(window.__lpFormURL());
+        });
+    }
+
+    // ---- Notes navigator: step through bookmarks like the find bar ----
+    var notesNav = document.getElementById('notes-nav');
+    var nnLabel = document.getElementById('nn-label');
+    var nnCount = document.getElementById('nn-count');
+    var nnPrev = document.getElementById('nn-prev');
+    var nnNext = document.getElementById('nn-next');
+    var navList = [];
+    var navIndex = -1;
+
+    function orderedList() {
+      var items = Object.keys(cache).map(function (k) { return cache[k]; });
+      items.sort(function (a, b) { return (b.created_at || '').localeCompare(a.created_at || ''); });
+      return items;
+    }
+    function renderNotesNav() {
+      if (!notesNav) return;
+      if (navIndex < 0 || !navList.length) { notesNav.hidden = true; return; }
+      var b = navList[navIndex];
+      var lbl = (b.note || b.text || b.source || '').trim();
+      nnLabel.textContent = lbl.length > 26 ? lbl.slice(0, 26) + '…' : lbl;
+      nnCount.textContent = (navIndex + 1) + ' / ' + navList.length;
+      nnPrev.disabled = navList.length < 2;
+      nnNext.disabled = navList.length < 2;
+      var fb = document.getElementById('find-bar'); if (fb) fb.hidden = true;  // one bar at a time
+      notesNav.hidden = false;
+    }
+    function showNotesNav(b) {
+      navList = orderedList();
+      navIndex = -1;
+      for (var i = 0; i < navList.length; i++) { if (navList[i].id === b.id) { navIndex = i; break; } }
+      renderNotesNav();
+    }
+    function navStep(delta) {
+      if (!navList.length) return;
+      navIndex = (navIndex + delta + navList.length) % navList.length;
+      gotoBookmark(navList[navIndex]);
+    }
+    // Show/clear the "hidden by filter" notice on the notes navigator.
+    function setNavWarn(kind, srcid, b) {
+      var warn = document.getElementById('nn-warn');
+      var reveal = document.getElementById('nn-reveal');
+      var count = document.getElementById('nn-count');
+      if (!warn) return;
+      if (!kind) {
+        warn.hidden = true;
+        if (reveal) { reveal.hidden = true; reveal.onclick = null; }
+        if (count) count.style.opacity = '';
+        return;
+      }
+      if (count) count.style.opacity = '.35';
+      warn.hidden = false;
+      if (kind === 'hidden') {
+        warn.textContent = '⚠ hidden by source filter';
+        if (reveal) { reveal.hidden = !srcid; reveal.onclick = function () { revealAndGo(srcid, b); }; }
+      } else {
+        warn.textContent = '⚠ line not in this view';
+        if (reveal) { reveal.hidden = true; reveal.onclick = null; }
+      }
+    }
+    // Re-include the bookmark's source in the selection, then go to the line.
+    function revealAndGo(srcid, b) {
+      var cForm = document.getElementById('controls-form');
+      if (srcid && cForm) {
+        var box = cForm.querySelector('input[name="src"][value="' + srcid + '"]');
+        if (box) box.checked = true;
+        var lg = cForm.querySelector('[name="lgset"]');
+        if (lg) {
+          var ids = lg.value ? lg.value.split(',') : [];
+          if (ids.indexOf(srcid) < 0) { ids.push(srcid); lg.value = ids.join(','); }
+        }
+      }
+      setNavWarn(null);
+      gotoBookmark(b);   // source now selected → locate succeeds
+    }
+    if (nnNext) nnNext.addEventListener('click', function () { navStep(1); });
+    if (nnPrev) nnPrev.addEventListener('click', function () { navStep(-1); });
+    var nnClear = document.getElementById('nn-clear');
+    if (nnClear) nnClear.addEventListener('click', function () { if (notesNav) notesNav.hidden = true; navIndex = -1; });
+
+    // ---- Wire up events ----
+    if (fab) fab.addEventListener('click', openPanel);
+    var closeBtn = document.getElementById('notes-close');
+    if (closeBtn) closeBtn.addEventListener('click', closePanel);
+    if (overlay) overlay.addEventListener('click', closePanel);
+    if (filterEl) filterEl.addEventListener('input', renderList);
+
+    document.getElementById('bmp-save').addEventListener('click', saveCur);
+    document.getElementById('bmp-cancel').addEventListener('click', closePopover);
+    document.getElementById('bmp-close').addEventListener('click', closePopover);
+    document.getElementById('bmp-remove').addEventListener('click', removeCur);
+    document.getElementById('bmp-note').addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); saveCur(); }
+    });
+    document.getElementById('bmp-note').addEventListener('input', autoGrowNote);
+
+    // ---- Drag across the timestamp gutter to bookmark a range of lines ----
+    document.addEventListener('mousedown', function (ev) {
+      if (ev.button !== 0) return;
+      var cell = ev.target.closest && ev.target.closest('#results .logtable td.ts');
+      if (!cell) return;
+      var startTr = cell.closest('tr');
+      if (!startTr || !startTr.querySelector('.pin-btn')) return;
+      var rows = Array.prototype.slice.call(
+        document.querySelectorAll('#results .logtable tbody tr'))
+        .filter(function (tr) { return tr.querySelector('.pin-btn'); });
+      var startIdx = rows.indexOf(startTr);
+      if (startIdx < 0) return;
+      ev.preventDefault();                 // suppress text selection while dragging
+      var onPin = !!(ev.target.closest && ev.target.closest('.pin-btn'));
+      var sel = [], dragged = false;
+      function clearSel() { sel.forEach(function (t) { t.classList.remove('range-sel'); }); sel = []; }
+      function paint(j) {
+        clearSel();
+        var lo = Math.min(startIdx, j), hi = Math.max(startIdx, j);
+        for (var i = lo; i <= hi; i++) { rows[i].classList.add('range-sel'); sel.push(rows[i]); }
+      }
+      function onMove(e) {
+        var t = e.target.closest && e.target.closest('#results .logtable tbody tr');
+        if (!t) return;
+        var j = rows.indexOf(t);
+        if (j < 0) return;
+        if (j !== startIdx) dragged = true;
+        paint(j);
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        if (dragged && sel.length > 1) {
+          var chosen = sel.slice();
+          justRangeDrag = true; setTimeout(function () { justRangeDrag = false; }, 0);
+          clearSel();
+          openRangeFromRows(chosen, startTr.querySelector('.pin-btn'));
+        } else {
+          clearSel();
+          if (onPin) openPopover(startTr.querySelector('.pin-btn'));
+        }
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+
+    // Delegated clicks: note-item actions + closing the popover.
+    document.addEventListener('click', function (ev) {
+      if (justRangeDrag) { justRangeDrag = false; return; }
+      var item = ev.target.closest && ev.target.closest('.note-item');
+      if (item) {
+        var ik = item.getAttribute('data-id');
+        var b = cache[ik];
+        if (ev.target.closest('.ni-go')) { ev.preventDefault(); gotoBookmark(b); return; }
+        if (ev.target.closest('.ni-del')) {
+          ev.preventDefault();
+          if (!b) return;
+          post(URL_DEL, b.id ? { id: b.id } : { source: b.source, seq: b.seq }).then(function (d) {
+            delete cache[ik];
+            rebuildIndex();
+            if (d && typeof d.count === 'number') setCount(d.count);
+            renderList(); resyncRows();
+          });
+          return;
+        }
+      }
+      // Click outside closes the popover.
+      if (!pop.hidden && !ev.target.closest('#bm-popover') && !ev.target.closest('.pin-btn'))
+        closePopover();
+    });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape') {
+        closePopover();
+        if (!panel.hidden) closePanel();
+        if (notesNav && !notesNav.hidden) { notesNav.hidden = true; navIndex = -1; }
+      }
+    });
+
+    // Prime the cache so pin stars reflect saved notes after each results swap.
+    loadCache().then(resyncRows);
+    // Re-sync stars after AJAX result swaps (mutation observer on #results).
+    var results = document.getElementById('results');
+    if (results && window.MutationObserver) {
+      new MutationObserver(function () { resyncRows(); }).observe(results, { childList: true });
+    }
+  })();
+</script>
+
+<script>
+  // ---- Jump-to-line match navigator (floating find bar) ----------------
+  (function () {
+    var bar = document.getElementById('find-bar');
+    var cForm = document.getElementById('controls-form');
+    if (!bar || !cForm) return;
+    var fbQ = document.getElementById('fb-q');
+    var fbCount = document.getElementById('fb-count');
+    var fbPrev = document.getElementById('fb-prev');
+    var fbNext = document.getElementById('fb-next');
+    var URL_VIEW = "{{ url_for('view') }}";
+    var busy = false;
+
+    function jumpVal() { var el = cForm.querySelector('[name="jump"]'); return el ? el.value.trim() : ''; }
+    function state() {
+      var s = document.getElementById('jump-state');
+      if (!s) return null;
+      return {
+        total: parseInt(s.getAttribute('data-total') || '0', 10),
+        n: parseInt(s.getAttribute('data-n') || '0', 10),
+        q: s.getAttribute('data-q') || ''
+      };
+    }
+    function refresh() {
+      var q = jumpVal();
+      var st = state();
+      if (!q || !st) { bar.hidden = true; return; }
+      bar.hidden = false;
+      var nn = document.getElementById('notes-nav'); if (nn) nn.hidden = true;  // one bar at a time
+      if (document.activeElement !== fbQ) fbQ.value = q;   // reflect the term, but never clobber a mid-edit
+      fbCount.textContent = st.total ? (st.n + ' / ' + st.total) : 'no matches';
+      fbCount.classList.toggle('none', !st.total);
+      fbPrev.disabled = st.total < 2;
+      fbNext.disabled = st.total < 2;
+    }
+    function scrollToMatch() {
+      var tgt = document.getElementById('jump-target');
+      if (tgt) tgt.scrollIntoView({ block: 'center' });   // the row animates via CSS
+    }
+    // Step to a match: delta +1/-1 relative to the current one, or a fresh
+    // search (n=1) when the jump text differs from what is on screen.
+    function go(delta) {
+      var q = jumpVal();
+      if (!q || busy) return;
+      var st = state();
+      var fresh = (!st || st.q !== q);
+      var base = window.__lpFormURL ? window.__lpFormURL() : (URL_VIEW + '?');
+      var parts = base.split('?');
+      var p = new URLSearchParams(parts[1] || '');
+      p.set('jump', q);
+      p.delete('page');
+      if (fresh) {
+        // New term: start from the page the reader is on — the server resolves
+        // the first match at/after it and reports its true global index —
+        // instead of teleporting to match #1 on page 1.
+        var cur = parseInt(new URLSearchParams(location.search).get('page') || '1', 10) || 1;
+        p.set('jnear', String(cur)); p.delete('jumpn');
+      } else {
+        var n = st.n + delta; if (n < 1) n = st.total || 1; if (n > st.total) n = 1;
+        p.set('jumpn', String(n)); p.delete('jnear');
+      }
+      p.set('frag', '1');
+      busy = true;
+      fetch(parts[0] + '?' + p.toString(), { headers: { 'X-Requested-With': 'fetch' }, credentials: 'same-origin' })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          if (results) results.innerHTML = html;
+          refresh(); scrollToMatch(); busy = false;
+        })
+        .catch(function () { busy = false; });
+    }
+
+    fbNext.addEventListener('click', function () { go(1); });
+    fbPrev.addEventListener('click', function () { go(-1); });
+    // Editable term: retype in the bar and press Enter to run a fresh search,
+    // without scrolling back up to the Global search box.
+    function applyFbQuery(delta) {
+      var el = cForm.querySelector('[name="jump"]');
+      if (!el) return;
+      var v = fbQ.value.trim();
+      if (!v) { document.getElementById('fb-clear').click(); return; }  // emptied → drop the search
+      el.value = v;   // make the retyped text canonical; go() resets to match 1 when it differs
+      go(delta || 1);
+    }
+    fbQ.addEventListener('keydown', function (e) {
+      // Enter → next match, Shift+Enter → previous (identical on Windows & macOS).
+      if (e.key === 'Enter') { e.preventDefault(); applyFbQuery(e.shiftKey ? -1 : 1); }
+      else if (e.key === 'Escape') {
+        e.stopPropagation();
+        var st = state();
+        if (!st || !st.total) bar.hidden = true;   // opened empty via Ctrl+F → close it
+        fbQ.blur();
+      }
+    });
+    document.getElementById('fb-clear').addEventListener('click', function () {
+      var el = cForm.querySelector('[name="jump"]'); if (el) el.value = '';
+      bar.hidden = true;
+      // Clear the search highlight but stay on the page currently shown — read
+      // the live page number from the pager — instead of snapping back to page 1.
+      if (window.__lpLoadView && window.__lpFormURL) {
+        var url = window.__lpFormURL();
+        var pi = document.querySelector('#results .pager-goto input');
+        var pg = pi ? parseInt(pi.value, 10) : 0;
+        if (pg > 1) url += (url.indexOf('?') >= 0 ? '&' : '?') + 'page=' + pg;
+        window.__lpLoadView(url);
+      }
+    });
+    // Ctrl/Cmd+F opens THIS global search (not the browser's) and focuses the
+    // bar, so you can search across every page from anywhere on the view.
+    document.addEventListener('keydown', function (e) {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault();
+        var nn = document.getElementById('notes-nav'); if (nn) nn.hidden = true;
+        bar.hidden = false;
+        fbQ.value = jumpVal();
+        fbQ.focus(); fbQ.select();
+      }
+    });
+    // F3 / Shift+F3 step through matches; Esc clears. Active whenever matches exist.
+    document.addEventListener('keydown', function (e) {
+      if (bar.hidden) return;
+      if (e.key === 'F3') { e.preventDefault(); go(e.shiftKey ? -1 : 1); }
+      else if (e.key === 'Escape') {
+        var tag = (e.target.tagName || '').toLowerCase();
+        if (tag !== 'input' && tag !== 'textarea') document.getElementById('fb-clear').click();
+      }
+    });
+    // Enter inside the jump box steps to the next match once it is applied.
+    var jinput = cForm.querySelector('[name="jump"]');
+    if (jinput) jinput.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      var st = state();
+      if (st && st.q === jumpVal() && st.total > 1) { e.preventDefault(); go(e.shiftKey ? -1 : 1); }
+    });
+
+    var results = document.getElementById('results');
+    if (results && window.MutationObserver) new MutationObserver(refresh).observe(results, { childList: true });
+    refresh();
+  })();
+</script>
+
+{% endblock %}

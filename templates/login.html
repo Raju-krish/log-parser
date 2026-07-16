@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Log Parser — Sign in{% endblock %}
+{% block content %}
+
+<div class="login-page">
+  <div class="login-box">
+    <div class="login-brand">
+      <div class="login-logo">◧</div>
+      <h1>LOG <span>PARSER</span></h1>
+      <p class="login-sub">Sign in to continue — access is limited to authorized users.</p>
+    </div>
+    <form method="POST" action="{{ url_for('login') }}" class="login-form">
+      <input type="hidden" name="next" value="{{ next_url }}" />
+
+      <div class="lf-field">
+        <label for="username">Username</label>
+        <div class="lf-input">
+          <input type="text" id="username" name="username" autocomplete="username"
+                 placeholder="your username" autofocus required />
+        </div>
+      </div>
+
+      <div class="lf-field">
+        <label for="password">Password</label>
+        <div class="lf-input">
+          <input type="password" id="password" name="password" autocomplete="current-password"
+                 placeholder="••••••••" required />
+          <button type="button" class="lf-toggle" id="pw-toggle" tabindex="-1" aria-label="Show password">show</button>
+        </div>
+      </div>
+
+      <button type="submit" class="btn-primary login-submit">Sign in&nbsp; →</button>
+    </form>
+    <p class="login-about"><a href="{{ url_for('about') }}">What can this tool do? →</a></p>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var pw = document.getElementById('password');
+    var t = document.getElementById('pw-toggle');
+    if (!pw || !t) return;
+    t.addEventListener('click', function () {
+      var show = pw.type === 'password';
+      pw.type = show ? 'text' : 'password';
+      t.textContent = show ? 'hide' : 'show';
+    });
+  })();
+</script>
+
+{% endblock %}

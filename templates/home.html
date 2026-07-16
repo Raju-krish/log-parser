@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Log Parser — Home{% endblock %}
+{% block content %}
+
+<section class="hero">
+  <h2>Welcome, {{ current_user }}</h2>
+  <p>Reopen one of your saved workspaces, or load new logs to parse below.</p>
+</section>
+
+{% if sources %}
+<div class="active-parse">
+  <span class="ap-text">You have <strong>{{ sources|length }}</strong> source(s) loaded and not yet saved.</span>
+  <a class="btn" href="{{ url_for('view') }}">▶ &nbsp; Continue to analysis</a>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="sources-head">
+    <h3 class="mono">Your saved workspaces <span class="pill">{{ workspaces|length }}</span></h3>
+    <span class="quota mono {{ 'over' if used > quota }}">{{ used_h }} / {{ quota_h }} used</span>
+  </div>
+  <div class="quota-bar"><span style="width: {{ pct }}%;"></span></div>
+
+  {% if workspaces %}
+    <table class="ws-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Saved</th>
+          <th>Sources</th>
+          <th>Size</th>
+          <th class="ws-actions-head">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for w in workspaces %}
+          <tr>
+            <td class="ws-name">{{ w.name or w.slug }}</td>
+            <td class="ws-meta">{{ w.created_at|replace('T', ' ') }}</td>
+            <td class="ws-meta">{{ w.source_count }}</td>
+            <td class="ws-meta">{{ w.size_h }}</td>
+            <td class="ws-actions">
+              <a class="btn secondary" href="{{ url_for('workspace_load', slug=w.slug) }}" data-loading="Opening workspace — parsing {{ w.source_count }} source(s)…">Load</a>
+              <details class="ws-share">
+                <summary class="btn secondary">Share{% if w.shared_with %} · {{ w.shared_with|length }}{% endif %}</summary>
+                <div class="ws-share-pop">
+                  <div class="wsp-title">Share “{{ w.name or w.slug }}”</div>
+                  {% if w.shared_with %}
+                    <div class="ws-share-list">
+                      {% for u in w.shared_with %}
+                        <span class="share-chip">{{ u }}<form method="POST" action="{{ url_for('workspace_unshare', slug=w.slug) }}"><input type="hidden" name="username" value="{{ u }}"><button type="submit" title="Stop sharing with {{ u }}">×</button></form></span>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+                  <form method="POST" action="{{ url_for('workspace_share', slug=w.slug) }}" class="ws-share-form">
+                    {% set available = all_users | reject('in', w.shared_with) | list %}
+                    {% if available %}
+                      <select name="usernames" class="ws-share-select" required>
+                        <option value="" disabled selected>Choose a user…</option>
+                        {% for u in available %}
+                          <option value="{{ u }}">{{ u }}</option>
+                        {% endfor %}
+                      </select>
+                      <button type="submit" class="btn secondary">Add</button>
+                    {% endif %}
+                  </form>
+                  <div class="wsp-hint">
+                    {% if all_users and (all_users | reject('in', w.shared_with) | list) %}People you add can load and view this workspace.
+                    {% elif all_users %}Everyone already has access.
+                    {% else %}No other users to share with yet.{% endif %}
+                  </div>
+                </div>
+              </details>
+              <form method="POST" action="{{ url_for('workspace_delete', slug=w.slug) }}"
+                    onsubmit="return confirm('Delete workspace “{{ w.slug }}”? This cannot be undone.');">
+                <button type="submit" class="btn secondary danger">Delete</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty">No saved workspaces yet — load logs below, analyze them, then use “Save workspace”.</div>
+  {% endif %}
+</div>
+
+{% if shared %}
+<div class="card">
+  <div class="sources-head">
+    <h3 class="mono">Shared with you <span class="pill">{{ shared|length }}</span></h3>
+  </div>
+  <table class="ws-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Owner</th>
+        <th>Saved</th>
+        <th>Sources</th>
+        <th>Size</th>
+        <th class="ws-actions-head">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for w in shared %}
+        <tr>
+          <td class="ws-name">{{ w.name or w.slug }}</td>
+          <td class="ws-meta">{{ w.owner }}</td>
+          <td class="ws-meta">{{ w.created_at|replace('T', ' ') }}</td>
+          <td class="ws-meta">{{ w.source_count }}</td>
+          <td class="ws-meta">{{ w.size_h }}</td>
+          <td class="ws-actions">
+            <a class="btn secondary" href="{{ url_for('workspace_load_shared', owner=w.owner, slug=w.slug) }}">Load</a>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<h3 class="section-label mono">Load new logs</h3>
+{% include "_upload_form.html" %}
+
+{% endblock %}

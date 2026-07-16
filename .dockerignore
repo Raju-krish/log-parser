@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+logs/
+README.md
+
+# Never bake the local credential copy or saved workspaces into the image;
+# mount them at runtime (see docker-compose.yml).
+users.json
+data/
+openspec/

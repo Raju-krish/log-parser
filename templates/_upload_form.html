@@ -1,0 +1,79 @@
+{# Reusable upload form (used by the home page and the focused upload page). #}
+<div class="card upload-card">
+  <form method="POST" action="{{ url_for('upload') }}" enctype="multipart/form-data" id="load-form">
+    <div class="upload-grid">
+
+      <!-- Option A: file upload dropzone -->
+      <label class="dropzone" for="files" id="dropzone">
+        <div class="dz-icon"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4"/><path d="M8 8l4-4 4 4"/><path d="M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg></div>
+        <div class="dz-title">Upload files or archive</div>
+        <div class="dz-sub">Drag &amp; drop or click to browse</div>
+        <div class="dz-hint mono">.tar · .tar.gz · .zip · or multiple log files</div>
+        <div class="dz-files mono" id="dz-files" hidden></div>
+        <input type="file" id="files" name="files" multiple />
+      </label>
+
+      <div class="or-divider"><span>OR</span></div>
+
+      <!-- Option B: server-side path -->
+      <div class="path-option">
+        <div class="po-icon"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h3.2l2 2H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6z"/></svg></div>
+        <div class="dz-title">Load from a server path</div>
+        <label for="path" class="po-label">Folder or file already on this machine</label>
+        <input type="text" id="path" name="path"
+               placeholder="/home/pi/Rajagopal/RDKB-64813/22/nvram2/logs" autocomplete="off" />
+        <div class="dz-hint mono">A folder loads every log inside it · an archive is extracted</div>
+      </div>
+
+    </div>
+
+    <div class="upload-footer">
+      <p class="meta">Provide an upload <strong>or</strong> a path (or both). Loading replaces the current set.</p>
+      <button type="submit" class="btn-primary">▶ &nbsp; Load logs</button>
+    </div>
+  </form>
+</div>
+
+<script>
+  // Reflect chosen files in the dropzone and support drag & drop styling.
+  (function () {
+    var input = document.getElementById('files');
+    var dz = document.getElementById('dropzone');
+    var list = document.getElementById('dz-files');
+    if (!input || !dz) return;
+
+    function render() {
+      var files = input.files;
+      if (!files || !files.length) { list.hidden = true; list.textContent = ''; dz.classList.remove('has-files'); return; }
+      var names = [];
+      for (var i = 0; i < files.length && i < 6; i++) names.push(files[i].name);
+      if (files.length > 6) names.push('+ ' + (files.length - 6) + ' more');
+      list.textContent = names.join('  ·  ');
+      list.hidden = false;
+      dz.classList.add('has-files');
+    }
+    input.addEventListener('change', render);
+
+    ['dragenter', 'dragover'].forEach(function (e) {
+      dz.addEventListener(e, function (ev) { ev.preventDefault(); dz.classList.add('drag'); });
+    });
+    ['dragleave', 'drop'].forEach(function (e) {
+      dz.addEventListener(e, function (ev) { ev.preventDefault(); dz.classList.remove('drag'); });
+    });
+    dz.addEventListener('drop', function (ev) {
+      if (ev.dataTransfer && ev.dataTransfer.files) { input.files = ev.dataTransfer.files; render(); }
+    });
+
+    // Show the loading overlay while the server ingests / parses the upload —
+    // heavy captures can take a while, so give clear "working" feedback.
+    var form = document.getElementById('load-form');
+    var pathEl = document.getElementById('path');
+    if (form) form.addEventListener('submit', function () {
+      var hasFile = input && input.files && input.files.length;
+      var hasPath = pathEl && pathEl.value.trim();
+      if ((hasFile || hasPath) && window.lpShowLoading) {
+        window.lpShowLoading('Loading & parsing logs…');
+      }
+    });
+  })();
+</script>

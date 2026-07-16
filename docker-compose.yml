@@ -1,0 +1,41 @@
+services:
+  log-parser:
+    build: .
+    image: log-parser:latest
+    container_name: log-parser
+    ports:
+      # host:container — browse to http://<server>:5100 from any machine on the
+      # network. 0.0.0.0 publishes on every host interface (all IPs).
+      - "0.0.0.0:5100:5100"
+    environment:
+      # IMPORTANT: set a fixed, long, random secret so login sessions survive
+      # container restarts. Change this value before deploying.
+      LOG_PARSER_SECRET: "change-me-to-a-long-random-string"
+      # Restrict the "server-side path" box to the mounted logs directory
+      # below. Remove this line to allow any in-container path.
+      LOG_PARSER_ALLOWED_ROOT: "/data/logs"
+      # Where per-user saved workspaces live (mounted as a named volume below
+      # so they persist across restarts).
+      LOG_PARSER_DATA_ROOT: "/data/workspaces"
+      # Per-user storage quota (bytes). Default 500 MB.
+      LOG_PARSER_USER_QUOTA: "524288000"
+      # Optional tuning (defaults shown)
+      LOG_PARSER_MAX_UPLOAD: "268435456"   # 256 MB max upload
+      LOG_PARSER_PAGINATE: "1"             # 1 = paginate large output
+      LOG_PARSER_PAGE_SIZE: "1000"         # lines per page
+      # Comma-separated admin usernames; missing ones are created and set their
+      # password on first sign-in.
+      LOG_PARSER_ADMINS: "admin"
+    volumes:
+      # Drop device logs into ./logs on the host, then load them in the app
+      # via the "server path" box using /data/logs. Read-only for safety.
+      - ./logs:/data/logs:ro
+      # The local copy of allowed users (username + SHA-256 hash). Writable so
+      # admins can add users / reset passwords from the UI.
+      - ./users.json:/app/users.json
+      # Persist saved workspaces across restarts.
+      - lp-workspaces:/data/workspaces
+    restart: always
+
+volumes:
+  lp-workspaces:

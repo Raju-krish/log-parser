@@ -1,0 +1,26 @@
+.venv/
+.venv-win/
+__pycache__/
+*.pyc
+
+# Local copy of user credentials (SHA-256 hashes) — never commit
+users.json
+
+# Per-user saved workspaces (persistent log storage)
+data/
+
+# Logs dropped into the bind-mount folder (keep the folder + its README)
+logs/*
+!logs/README.txt
+
+# Editor / OS cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Local env overrides & backups (e.g. from the update backup step)
+.env
+*.bak
+*-backup.tar.gz

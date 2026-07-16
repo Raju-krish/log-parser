@@ -1,0 +1,204 @@
+{# Results fragment: severity bar, jump banner, source legend, and the merged
+   or separate log tables. Included inline by view.html for a full page, and
+   rendered standalone (frag=1) for fast partial refreshes / "go to line". #}
+
+{# ---- Reusable pager macro ---- #}
+{% macro pager(pg) %}
+  {% if pg and pg.total_pages > 1 %}
+  <div class="pager">
+    <a class="btn secondary {{ 'disabled' if pg.page <= 1 }}" data-scroll="top"
+       href="{{ url_for('view', page=1, **pager_base) }}">« first</a>
+    <a class="btn secondary {{ 'disabled' if pg.page <= 1 }}" data-scroll="bottom"
+       href="{{ url_for('view', page=pg.page-1, **pager_base) }}">‹ prev</a>
+    <span>page {{ pg.page }} / {{ pg.total_pages }} &nbsp;·&nbsp; {{ pg.total }} lines</span>
+    <a class="btn secondary {{ 'disabled' if pg.page >= pg.total_pages }}" data-scroll="top"
+       href="{{ url_for('view', page=pg.page+1, **pager_base) }}">next ›</a>
+    <a class="btn secondary {{ 'disabled' if pg.page >= pg.total_pages }}" data-scroll="bottom"
+       href="{{ url_for('view', page=pg.total_pages, **pager_base) }}">last »</a>
+    <form class="pager-goto" data-base="{{ url_for('view', **pager_base) }}">
+      <label>Go to <input type="number" min="1" max="{{ pg.total_pages }}"
+             value="{{ pg.page }}" aria-label="Page number"></label>
+      <button type="submit" class="btn secondary">Go</button>
+    </form>
+  </div>
+  {% endif %}
+{% endmacro %}
+
+{% set _lvname = {'error': 'Errors', 'warn': 'Warnings', 'info': 'Info', 'debug': 'Debug'} %}
+{% if level_stats and (level_stats.error or level_stats.warn or level_stats.info or level_stats.debug or level) %}
+<div class="sev-bar" id="sev-bar">
+  <span class="sev-label">Severity</span>
+  <button type="button" class="sev-chip {{ 'on' if not level }}" data-level="">All</button>
+  {% for lv in level_order %}
+    <button type="button" class="sev-chip sev-{{ lv }} {{ 'on' if level == lv }}" data-level="{{ lv }}">
+      <span class="sev-dot"></span>{{ _lvname[lv] }} <span class="sev-count">{{ level_stats[lv] }}</span>
+    </button>
+  {% endfor %}
+  {% if level %}<span class="sev-note">showing {{ level }} &amp; above</span>{% endif %}
+</div>
+{% endif %}
+
+{% if jump_raw %}
+<div class="jump-banner {{ 'nomatch' if not jump_found }}">
+  {% if jump_found %}
+    <span>▸ Match <strong>{{ jump_n }}</strong> of <strong>{{ jump_total }}</strong> for “{{ jump_raw }}” — <span class="jb-hint">use the match bar (or F3) to step through them</span>.</span>
+  {% else %}
+    <span>No line containing “{{ jump_raw }}” in the current selection.</span>
+  {% endif %}
+  <a class="btn secondary" id="jump-clear" href="#">Clear jump</a>
+</div>
+<div id="jump-state" data-total="{{ jump_total or 0 }}" data-n="{{ jump_n or 0 }}" data-q="{{ jump_raw }}" hidden></div>
+{% endif %}
+
+{% if locate_active %}
+<div id="locate-state" data-found="{{ 1 if locate_found else 0 }}"
+     data-srcid="{{ locate_src_id if locate_src_id is not none else '' }}"
+     data-selected="{{ 1 if locate_selected else 0 }}" hidden></div>
+{% endif %}
+
+{# ---- Log / non-log file category templates ---- #}
+{% if categories %}
+<div class="cat-bar">
+  <span class="cat-label">Files</span>
+  <a class="cat-chip {{ 'on' if not show_others }}" href="{{ logs_url }}">
+    <span class="ci">📄</span> Logs <span class="cn">{{ log_count }}</span></a>
+  {% for c in categories %}
+    <a class="cat-chip {{ 'on' if active_cat == c.key }}" href="{{ c.url }}">
+      <span class="ci">{{ c.icon }}</span> {{ c.label }} <span class="cn">{{ c.count }}</span></a>
+  {% endfor %}
+</div>
+{% if show_others %}
+<div class="cat-note">
+  <strong>{{ active_cat_label }}</strong> — {{ selected_ids|length }} file(s), shown separately (not merged into a timeline). Pick a file below.
+</div>
+{% endif %}
+{% endif %}
+
+{# ---- Source legend / toggle bar above the logs ---- #}
+{% set selected_list = all_sources | selectattr('source_id', 'in', selected_ids) | list %}
+{% if legend_candidates and legend_candidates|length <= 40 %}
+<div class="src-legend" id="src-legend">
+  <span class="sl-label">Sources <span class="hint">(click a source to hide / include it)</span></span>
+  {% for s in legend_candidates %}
+    <button type="button" class="sl-chip {{ 'on' if s.source_id in selected_ids else 'off' }}"
+            data-src="{{ s.source_id }}"
+            title="{{ s.name }} — {{ 'click to hide' if s.source_id in selected_ids else 'click to include' }}">
+      <span class="swatch" style="background: {{ s.color }};"></span>
+      <span class="sl-name">{{ s.name | short_source }}</span>
+      <span class="count">{{ s.line_count }}</span>
+    </button>
+  {% endfor %}
+</div>
+{% elif selected_list %}
+<div class="legend" id="legend">
+  {% for s in selected_list[:12] %}
+    <span class="item"><span class="swatch" style="background: {{ s.color }};"></span>{{ s.name | short_source }}</span>
+  {% endfor %}
+  {% if selected_list|length > 12 %}
+    <span class="item legend-more">+{{ selected_list|length - 12 }} more source(s)</span>
+  {% endif %}
+</div>
+{% endif %}
+
+{# ---- Merged view ---- #}
+{% if mode != 'separate' %}
+  <div class="card">
+    {% if rendered %}
+      {{ pager(merged_page) }}
+      <table class="logtable">
+        <tbody>
+          {% for row in rendered %}
+            <tr class="{{ 'match-row' if row.match }} {{ ('lvl-' + row.level) if row.level }} {{ 'bookmarked' if row.pinned }}" {% if row.match %}id="jump-target"{% endif %}>
+              <td class="ts {{ 'muted' if row.muted }}">
+                <button type="button" class="pin-btn {{ 'on' if row.pinned }}"
+                        data-src="{{ row.src }}" data-srcid="{{ row.srcid }}" data-seq="{{ row.seq }}"
+                        data-ts="{{ row.ts }}" data-epoch="{{ row.epoch }}"
+                        data-color="{{ row.color }}"
+                        title="{{ 'Edit note' if row.pinned else 'Pin this line — or drag the timestamps down to bookmark a range' }}"
+                        aria-label="Bookmark line">{{ '★' if row.pinned else '☆' }}</button>
+                <span class="ts-val">{{ row.ts }}</span>
+              </td>
+              <td class="badge"><span style="background: {{ row.color }};" title="{{ row.name }}">{{ row.name | short_source }}</span></td>
+              <td class="msg">{{ row.text | highlight(q_raw, jump_raw) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {{ pager(merged_page) }}
+    {% else %}
+      <div class="empty">No lines match the current filter / selection.</div>
+    {% endif %}
+  </div>
+
+{# ---- Separate view (searchable file switcher: one file at a time) ---- #}
+{% else %}
+  <div class="card file-switcher">
+    <label>Viewing file <span class="hint">({{ separate_sources|length }} file(s) — click to search)</span></label>
+    {% set _active = (separate_sources | selectattr('source_id', 'equalto', active_src) | list) %}
+    <div class="mfp">
+      <button type="button" class="mfp-trigger" aria-haspopup="listbox" aria-expanded="false">
+        {% if _active %}
+          <span class="mfp-swatch" style="background: {{ _active[0].color }};"></span>
+          <span class="mfp-cur">{{ _active[0].name | short_source }}</span>
+          <span class="mfp-cur-lines">{{ _active[0].line_count }} lines</span>
+        {% else %}
+          <span class="mfp-cur">Select a file…</span>
+        {% endif %}
+        <span class="mfp-caret">▾</span>
+      </button>
+      <div class="mfp-pop" hidden>
+        <input type="text" class="mfp-search" placeholder="Search {{ separate_sources|length }} files…" autocomplete="off">
+        <div class="mfp-list" role="listbox">
+          {% for s in separate_sources %}
+            <button type="button" class="mfp-opt {{ 'on' if s.source_id == active_src }}"
+                    role="option" data-url="{{ url_for('view', active=s.source_id, **sep_base) }}"
+                    data-name="{{ s.name|lower }}">
+              <span class="mfp-swatch" style="background: {{ s.color }};"></span>
+              <span class="mfp-opt-name">{{ s.name | short_source }}</span>
+              <span class="mfp-opt-path">{{ s.name }}</span>
+              <span class="mfp-opt-lines">{{ s.line_count }}</span>
+            </button>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% if panels %}
+    {% for panel in panels %}
+      <div class="panel card">
+        <h3><span class="swatch" style="background: {{ panel.source.color }};"></span><span title="{{ panel.source.name }}">{{ panel.source.name | short_source }}</span>
+          <span class="count" style="opacity:.5;">({{ panel.page.total }} lines shown)</span></h3>
+        {% if panel.page.records %}
+          {{ pager(panel.page) }}
+          {% set _sb = panel.source.name.split('/')[-1] %}
+          <table class="logtable">
+            <tbody>
+              {% for r in panel.page.records %}
+                {% set _pinned = (panel.source.source_id, r.seq) in pinned_ids or (_sb, r.seq) in pinned_names %}
+                <tr class="{{ 'match-row' if panel.match_offset is not none and loop.index0 == panel.match_offset }} {{ ('lvl-' + r.level) if r.level }} {{ 'bookmarked' if _pinned }}" {% if panel.match_offset is not none and loop.index0 == panel.match_offset %}id="jump-target"{% endif %}>
+                  <td class="ts {{ 'muted' if not r.has_own_ts }}">
+                    <button type="button" class="pin-btn {{ 'on' if _pinned }}"
+                            data-src="{{ _sb }}" data-srcid="{{ panel.source.source_id }}" data-seq="{{ r.seq }}"
+                            data-ts="{{ format_canonical(r.epoch) if r.epoch is not none else '' }}"
+                            data-epoch="{{ r.epoch if r.epoch is not none else '' }}"
+                            data-color="{{ panel.source.color }}"
+                            title="{{ 'Edit note' if _pinned else 'Pin this line — or drag the timestamps down to bookmark a range' }}"
+                            aria-label="Bookmark line">{{ '★' if _pinned else '☆' }}</button>
+                    <span class="ts-val">{{ format_canonical(r.epoch) if r.epoch is not none else '' }}</span>
+                  </td>
+                  <td class="msg">{{ r.text | highlight(q_raw, jump_raw) }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {{ pager(panel.page) }}
+        {% else %}
+          <div class="empty">No lines match the current filter.</div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  {% else %}
+    <div class="empty">No sources selected.</div>
+  {% endif %}
+{% endif %}

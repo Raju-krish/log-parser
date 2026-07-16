@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    // Apply the colour palette before paint to avoid a flash of default.
+    // Default theme (when the user hasn't picked one) is One Dark.
+    (function () {
+      try {
+        var savedFont = localStorage.getItem('lp-font');
+        if (savedFont !== 'default') document.documentElement.setAttribute('data-font', savedFont);
+        var DEFAULT = 'onedark';
+        var t = localStorage.getItem('lp-theme') || DEFAULT;
+        if (t === 'matrix') return;   // matrix is the CSS :root base (no attr)
+        document.documentElement.setAttribute('data-theme', t);
+        var LIGHT = ['daylight','solarl','github','gruvl','latte','rosedawn','nordl','parchment','ayu','meadow'];
+        if (LIGHT.indexOf(t) >= 0) document.documentElement.setAttribute('data-mode', 'light');
+      } catch (e) {}
+    })();
+  </script>
+  <title>{% block title %}Log Parser{% endblock %}</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}" />
+  <link rel="icon" type="image/png" sizes="180x180" href="{{ url_for('static', filename='log_parser.png') }}" />
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='log_parser.png') }}" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;600&family=JetBrains+Mono:wght@400;600&family=Fira+Code:wght@400;600&family=Source+Code+Pro:wght@400;600&family=IBM+Plex+Mono:wght@400;600&family=Roboto+Mono:wght@400;600&family=Ubuntu+Mono&family=Space+Mono:wght@400;700&family=Inconsolata:wght@400;600&family=Inter:wght@400;600&family=Roboto:wght@400;500&family=Open+Sans:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  {% if current_user %}
+  <header class="app">
+    <h1>LOG <span>PARSER</span></h1>
+    <div class="spacer"></div>
+    <a class="btn secondary" href="{{ url_for('index') }}">Home</a>
+    <a class="btn secondary" href="{{ url_for('upload') }}">Upload</a>
+    <a class="btn secondary" href="{{ url_for('reset') }}">Reset</a>
+    <a class="btn secondary" href="{{ url_for('about') }}">About</a>
+    {% if is_admin %}<a class="btn secondary" href="{{ url_for('admin') }}">Admin</a>{% endif %}
+    <div class="theme-menu" id="theme-menu">
+      <button type="button" class="theme-trigger" id="theme-trigger" aria-haspopup="true" aria-expanded="false" title="Colour palette">
+        <span class="tt-swatch"></span>
+        <span class="tt-name" id="tt-name">One Dark</span>
+        <span class="tt-caret">▾</span>
+      </button>
+      <div class="theme-pop" id="theme-pop" hidden></div>
+    </div>
+    <div class="font-menu" id="font-menu">
+      <button type="button" class="font-trigger" id="font-trigger" aria-haspopup="true" aria-expanded="false" title="Font">
+        <span class="ft-glyph">Aa</span>
+        <span class="ft-name" id="ft-name">JetBrains Mono</span>
+        <span class="ft-caret">▾</span>
+      </button>
+      <div class="font-pop" id="font-pop" hidden></div>
+    </div>
+    <span class="user mono">{{ current_user }}</span>
+    <a class="btn secondary" href="{{ url_for('logout') }}">Logout</a>
+  </header>
+  {% endif %}
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+
+  {% if current_user %}
+  <div class="app-loading" id="app-loading" hidden aria-live="polite">
+    <div class="al-box">
+      <div class="al-spinner"></div>
+      <div class="al-text" id="app-loading-text">Loading logs…</div>
+      <div class="al-sub">Large captures can take a moment to parse — please wait.</div>
+    </div>
+  </div>
+  <script>
+    // Global loading overlay so slow navigations (parsing large captures /
+    // opening a saved workspace) don't leave the page looking frozen.
+    (function () {
+      window.lpShowLoading = function (msg) {
+        var el = document.getElementById('app-loading');
+        if (!el) return;
+        var t = document.getElementById('app-loading-text');
+        if (t && msg) t.textContent = msg;
+        el.hidden = false;
+      };
+      // Any element with data-loading shows the overlay on a plain left-click
+      // (ignores new-tab / modified clicks and prevented defaults).
+      document.addEventListener('click', function (e) {
+        var trg = e.target.closest && e.target.closest('[data-loading]');
+        if (!trg || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        window.lpShowLoading(trg.getAttribute('data-loading') || 'Loading…');
+      });
+      // Restoring from the back/forward cache must never leave it stuck on.
+      window.addEventListener('pageshow', function () {
+        var el = document.getElementById('app-loading');
+        if (el) el.hidden = true;
+      });
+    })();
+  </script>
+  {% endif %}
+
+  <script>
+    // Modern colour-palette picker: grouped swatch previews, persisted per browser.
+    (function () {
+      var THEMES = [
+        { id: 'matrix', name: 'Matrix', mode: 'dark', bg: '#0a0e14', ac: '#00ff9d' },
+        { id: 'dracula', name: 'Dracula', mode: 'dark', bg: '#282a36', ac: '#bd93f9' },
+        { id: 'nord', name: 'Nord', mode: 'dark', bg: '#2e3440', ac: '#88c0d0' },
+        { id: 'tokyo', name: 'Tokyo Night', mode: 'dark', bg: '#1a1b26', ac: '#7aa2f7' },
+        { id: 'monokai', name: 'Monokai', mode: 'dark', bg: '#272822', ac: '#a6e22e' },
+        { id: 'solard', name: 'Solarized', mode: 'dark', bg: '#002b36', ac: '#268bd2' },
+        { id: 'gruvd', name: 'Gruvbox', mode: 'dark', bg: '#282828', ac: '#fabd2f' },
+        { id: 'onedark', name: 'One Dark', mode: 'dark', bg: '#282c34', ac: '#61afef' },
+        { id: 'synthwave', name: 'Synthwave', mode: 'dark', bg: '#241b2f', ac: '#ff7edb' },
+        { id: 'mocha', name: 'Mocha', mode: 'dark', bg: '#1e1e2e', ac: '#cba6f7' },
+        { id: 'daylight', name: 'Daylight', mode: 'light', bg: '#f3f6f9', ac: '#0d9488' },
+        { id: 'solarl', name: 'Solarized', mode: 'light', bg: '#fdf6e3', ac: '#268bd2' },
+        { id: 'github', name: 'GitHub', mode: 'light', bg: '#ffffff', ac: '#0969da' },
+        { id: 'gruvl', name: 'Gruvbox', mode: 'light', bg: '#fbf1c7', ac: '#b57614' },
+        { id: 'latte', name: 'Latte', mode: 'light', bg: '#eff1f5', ac: '#8839ef' },
+        { id: 'rosedawn', name: 'Rosé Pine', mode: 'light', bg: '#faf4ed', ac: '#907aa9' },
+        { id: 'nordl', name: 'Nord', mode: 'light', bg: '#eceff4', ac: '#5e81ac' },
+        { id: 'parchment', name: 'Parchment', mode: 'light', bg: '#f6f1e7', ac: '#c2410c' },
+        { id: 'ayu', name: 'Ayu', mode: 'light', bg: '#fafafa', ac: '#ff9940' },
+        { id: 'meadow', name: 'Meadow', mode: 'light', bg: '#f1f7f2', ac: '#2f855a' }
+      ];
+      var menu = document.getElementById('theme-menu');
+      var trigger = document.getElementById('theme-trigger');
+      var pop = document.getElementById('theme-pop');
+      var ttName = document.getElementById('tt-name');
+      if (!menu || !trigger || !pop) return;
+
+      function byId(id) {
+        for (var i = 0; i < THEMES.length; i++) if (THEMES[i].id === id) return THEMES[i];
+        return THEMES[0];
+      }
+      function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+      function renderGroup(mode, label) {
+        var html = '<div class="tp-group-label">' + label + '</div><div class="tp-grid">';
+        for (var i = 0; i < THEMES.length; i++) {
+          var t = THEMES[i];
+          if (t.mode !== mode) continue;
+          html += '<button type="button" class="theme-opt" data-id="' + t.id + '" '
+                + 'style="--sw-bg:' + t.bg + ';--sw-ac:' + t.ac + '">'
+                + '<span class="to-prev"></span><span class="to-name">' + esc(t.name) + '</span></button>';
+        }
+        return html + '</div>';
+      }
+      pop.innerHTML = renderGroup('dark', 'Dark') + renderGroup('light', 'Light');
+
+      function apply(id, save) {
+        var t = byId(id);
+        if (t.id === 'matrix') document.documentElement.removeAttribute('data-theme');
+        else document.documentElement.setAttribute('data-theme', t.id);
+        if (t.mode === 'light') document.documentElement.setAttribute('data-mode', 'light');
+        else document.documentElement.removeAttribute('data-mode');
+        if (ttName) ttName.textContent = t.name;
+        var opts = pop.querySelectorAll('.theme-opt');
+        for (var i = 0; i < opts.length; i++) opts[i].classList.toggle('active', opts[i].getAttribute('data-id') === t.id);
+        if (save) { try { localStorage.setItem('lp-theme', t.id); } catch (e) {} }
+      }
+      apply(document.documentElement.getAttribute('data-theme') || 'matrix', false);
+
+      function open() { pop.hidden = false; menu.classList.add('open'); trigger.setAttribute('aria-expanded', 'true'); }
+      function close() { pop.hidden = true; menu.classList.remove('open'); trigger.setAttribute('aria-expanded', 'false'); }
+      trigger.addEventListener('click', function (e) { e.stopPropagation(); if (pop.hidden) open(); else close(); });
+      pop.addEventListener('click', function (e) {
+        var b = e.target.closest('.theme-opt');
+        if (b) { apply(b.getAttribute('data-id'), true); close(); }
+      });
+      document.addEventListener('click', function (e) { if (!menu.contains(e.target)) close(); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+    })();
+
+    // Modern font picker: grouped previews (each rendered in its own face),
+    // persisted per browser and applied app-wide via html[data-font].
+    (function () {
+      var FONTS = [
+        { id: 'jetbrains',   name: 'JetBrains Mono',  group: 'Monospace',  stack: "'JetBrains Mono', ui-monospace, monospace", def: true },
+        { id: 'default',     name: 'Share Tech Mono', group: 'Monospace',  stack: "'Share Tech Mono', ui-monospace, monospace" },
+        { id: 'fira',        name: 'Fira Code',       group: 'Monospace',  stack: "'Fira Code', ui-monospace, monospace" },
+        { id: 'source',      name: 'Source Code Pro', group: 'Monospace',  stack: "'Source Code Pro', ui-monospace, monospace" },
+        { id: 'ibm',         name: 'IBM Plex Mono',   group: 'Monospace',  stack: "'IBM Plex Mono', ui-monospace, monospace" },
+        { id: 'robotomono',  name: 'Roboto Mono',     group: 'Monospace',  stack: "'Roboto Mono', ui-monospace, monospace" },
+        { id: 'ubuntu',      name: 'Ubuntu Mono',     group: 'Monospace',  stack: "'Ubuntu Mono', ui-monospace, monospace" },
+        { id: 'space',       name: 'Space Mono',      group: 'Monospace',  stack: "'Space Mono', ui-monospace, monospace" },
+        { id: 'inconsolata', name: 'Inconsolata',     group: 'Monospace',  stack: "'Inconsolata', ui-monospace, monospace" },
+        { id: 'inter',       name: 'Inter',           group: 'Sans-serif', stack: "'Inter', system-ui, sans-serif" },
+        { id: 'roboto',      name: 'Roboto',          group: 'Sans-serif', stack: "'Roboto', system-ui, sans-serif" },
+        { id: 'opensans',    name: 'Open Sans',       group: 'Sans-serif', stack: "'Open Sans', system-ui, sans-serif" }
+      ];
+      var menu = document.getElementById('font-menu');
+      var trigger = document.getElementById('font-trigger');
+      var pop = document.getElementById('font-pop');
+      var ftName = document.getElementById('ft-name');
+      if (!menu || !trigger || !pop) return;
+
+      function byId(id) {
+        for (var i = 0; i < FONTS.length; i++) if (FONTS[i].id === id) return FONTS[i];
+        return FONTS[0];
+      }
+      function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+      function renderGroup(group) {
+        var html = '<div class="tp-group-label">' + group + '</div>';
+        for (var i = 0; i < FONTS.length; i++) {
+          var f = FONTS[i];
+          if (f.group !== group) continue;
+          html += '<button type="button" class="font-opt" data-id="' + f.id + '" style="font-family:' + f.stack + '">'
+                + '<span class="fo-prev" style="font-family:' + f.stack + '">Aa</span>'
+                + '<span class="fo-name">' + esc(f.name)
+                + '<span class="fo-meta">' + (f.def ? 'Default · ' : '') + 'Aa Bb Cc 0123' + '</span></span>'
+                + '</button>';
+        }
+        return html;
+      }
+      pop.innerHTML = renderGroup('Monospace') + renderGroup('Sans-serif');
+
+      function apply(id, save) {
+        var f = byId(id);
+        if (f.id === 'default') document.documentElement.removeAttribute('data-font');
+        else document.documentElement.setAttribute('data-font', f.id);
+        if (ftName) ftName.textContent = f.name;
+        var opts = pop.querySelectorAll('.font-opt');
+        for (var i = 0; i < opts.length; i++) opts[i].classList.toggle('active', opts[i].getAttribute('data-id') === f.id);
+        if (save) { try { localStorage.setItem('lp-font', f.id); } catch (e) {} }
+      }
+      apply(document.documentElement.getAttribute('data-font') || 'default', false);
+
+      function open() { pop.hidden = false; menu.classList.add('open'); trigger.setAttribute('aria-expanded', 'true'); }
+      function close() { pop.hidden = true; menu.classList.remove('open'); trigger.setAttribute('aria-expanded', 'false'); }
+      trigger.addEventListener('click', function (e) { e.stopPropagation(); if (pop.hidden) open(); else close(); });
+      pop.addEventListener('click', function (e) {
+        var b = e.target.closest('.font-opt');
+        if (b) { apply(b.getAttribute('data-id'), true); close(); }
+      });
+      document.addEventListener('click', function (e) { if (!menu.contains(e.target)) close(); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+    })();
+  </script>
+</body>
+</html>

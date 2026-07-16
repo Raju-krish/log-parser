@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Log Parser — Choose bundles{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h3 class="mono">Select log bundle(s) to analyze</h3>
+  <p class="meta">The uploaded archive contains {{ archives|length }} nested log bundle(s).
+    Pick one (or several) to extract and analyze. Selecting more than one prefixes each
+    source with its bundle time so you can tell them apart.</p>
+
+  <form method="POST" action="{{ url_for('select_post') }}">
+    <div class="toolbar" style="margin:12px 0;">
+      <div class="actions">
+        <button type="submit">▶ &nbsp; Analyze selected</button>
+        <button type="button" class="btn secondary" id="all">Select all</button>
+        <button type="button" class="btn secondary" id="none">Clear</button>
+      </div>
+    </div>
+
+    <table class="logtable" style="width:100%;">
+      <tbody>
+        {% for a in archives %}
+          <tr>
+            <td class="badge" style="width:1%;">
+              <label class="source-toggle" style="border:none;padding:2px 0;">
+                <input type="checkbox" name="archive" value="{{ a.id }}" {{ 'checked' if loop.first }}>
+              </label>
+            </td>
+            <td class="ts" style="opacity:1;">{{ a.label }}</td>
+            <td class="msg">{{ a.name }}</td>
+            <td class="ts">{{ a.size_h }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if has_plain %}
+      <p class="meta">Note: some non-archive files were also found in the upload and will be included alongside the selected bundle(s).</p>
+    {% endif %}
+  </form>
+</div>
+
+<script>
+  document.getElementById('all').addEventListener('click', function () {
+    document.querySelectorAll('input[name="archive"]').forEach(function (c) { c.checked = true; });
+  });
+  document.getElementById('none').addEventListener('click', function () {
+    document.querySelectorAll('input[name="archive"]').forEach(function (c) { c.checked = false; });
+  });
+</script>
+
+{% endblock %}
