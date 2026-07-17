@@ -39,6 +39,7 @@ from timestamps import (
 )
 from workspaces import WorkspaceError, WorkspaceStore, slugify as ws_slugify
 from bookmarks import BookmarkStore
+from notepad import NotepadStore
 
 # --- Configuration --------------------------------------------------------------
 
@@ -122,6 +123,7 @@ USERS = UserStore(USERS_DB, admin_usernames=ADMIN_USERS)
 THROTTLE = LoginThrottle()
 WORKSPACES = WorkspaceStore(DATA_ROOT, USER_QUOTA)
 BOOKMARKS = BookmarkStore(DATA_ROOT)
+NOTEPAD = NotepadStore(DATA_ROOT)
 try:
     USERS.ensure_admins(ADMIN_USERS)
 except Exception as _exc:  # noqa: BLE001 (best-effort bootstrap; store may be read-only)
@@ -166,15 +168,33 @@ def _require_login():
 
 @app.template_filter("highlight")
 def _highlight(text: str, query: str, jump: str = ""):
-    """Escape line text, then wrap case-insensitive matches of ``query`` in
-    <mark> and matches of ``jump`` in <mark class="jmark"> so the jumped-to
-    term gets a distinct emphasis. Escaping happens before insertion (XSS-safe)."""
+    """Escape line text, then wrap case-insensitive matches of the search
+    term(s) in <mark>. Multiple ``query`` terms may be separated by ``|``; the
+    ``jump`` term (Global search) gets a distinct <mark class="jmark">.
+    Escaping happens before insertion (XSS-safe)."""
     escaped = str(escape(text))
     alts = []
+    seen = set()
     if jump:
-        alts.append(("j", re.escape(str(escape(jump)))))
-    if query and (not jump or str(escape(query)) != str(escape(jump))):
-        alts.append(("q", re.escape(str(escape(query)))))
+        j = str(escape(jump))
+        alts.append(("j", re.escape(j)))
+        seen.add(j.casefold())
+    # Collect the distinct "message contains" terms; longer ones first so they
+    # win over shorter overlapping terms in the alternation.
+    terms = []
+    for term in query.split("|"):
+        term = term.strip()
+        if not term:
+            continue
+        esc = str(escape(term))
+        key = esc.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        terms.append(esc)
+    terms.sort(key=len, reverse=True)
+    for i, esc in enumerate(terms):
+        alts.append((f"q{i}", re.escape(esc)))
     if not alts:
         return Markup(escaped)
     pattern = re.compile("|".join(f"(?P<{n}>{p})" for n, p in alts), re.IGNORECASE)
@@ -857,6 +877,9 @@ def _resolve_selection(state, args, flash_errors=True):
     start_raw = args.get("start", "").strip()
     end_raw = args.get("end", "").strip()
     q_raw = args.get("q", "").strip()
+    qmode = args.get("qmode", "any").strip().lower()
+    if qmode not in ("any", "all"):
+        qmode = "any"
     start = parse_filter_bound(start_raw)
     end = parse_filter_bound(end_raw)
     if flash_errors and start_raw and start is None:
@@ -872,6 +895,7 @@ def _resolve_selection(state, args, flash_errors=True):
         "log_count": len(log_ids), "other_count": len(other_ids),
         "universe_ids": universe,
         "mode": mode, "start_raw": start_raw, "end_raw": end_raw, "q_raw": q_raw,
+        "qmode": qmode,
         "start": start, "end": end,
     }
 
@@ -894,6 +918,7 @@ def view():
     legend_ids = sel["legend_ids"]
     mode = sel["mode"]
     start_raw, end_raw, q_raw = sel["start_raw"], sel["end_raw"], sel["q_raw"]
+    qmode = sel["qmode"]
     start, end = sel["start"], sel["end"]
     show_others = sel["show_others"]
     other_count = sel["other_count"]
@@ -1087,7 +1112,7 @@ def view():
             hits = []                 # (source, local index within its filtered recs)
             per_src = {}              # source_id -> (recs_before_level, recs_after_level)
             for s in selected:
-                recs_tq = filter_by_text(filter_records(s.records, start, end), q_raw)
+                recs_tq = filter_by_text(filter_records(s.records, start, end), q_raw, qmode)
                 recs_lv = filter_by_level(recs_tq, level_raw)
                 per_src[s.source_id] = (recs_tq, recs_lv)
                 for i, r in enumerate(recs_lv):
@@ -1118,7 +1143,7 @@ def view():
         elif active_src is not None:
             s = state["sources"][active_src]
             recs = filter_records(s.records, start, end)
-            recs = filter_by_text(recs, q_raw)
+            recs = filter_by_text(recs, q_raw, qmode)
             level_stats = level_counts(recs)
             recs = filter_by_level(recs, level_raw)
             match_offset = None
@@ -1149,7 +1174,7 @@ def view():
             sel_set = set(selected_ids)
             merged = [r for r in state["_all_merged"] if r.source_id in sel_set]
         merged = filter_records(merged, start, end)
-        merged = filter_by_text(merged, q_raw)
+        merged = filter_by_text(merged, q_raw, qmode)
         level_stats = level_counts(merged)
         merged = filter_by_level(merged, level_raw)
         merged_match = None
@@ -1190,19 +1215,21 @@ def view():
     # Pre-merged link parameter sets (include the compact selection) so the
     # template can build pager / file-switcher / export URLs safely.
     pager_base = {"mode": mode, "start": start_raw, "end": end_raw, "q": q_raw,
-                  "page_size": page_size, "active": active_src, "lgset": legend_ids_str,
-                  "level": level_raw}
+                  "qmode": qmode, "page_size": page_size, "active": active_src,
+                  "lgset": legend_ids_str, "level": level_raw}
     pager_base.update(sel_kwargs)
     sep_base = {"mode": "separate", "start": start_raw, "end": end_raw, "q": q_raw,
-                "page_size": page_size, "lgset": legend_ids_str, "level": level_raw}
+                "qmode": qmode, "page_size": page_size, "lgset": legend_ids_str,
+                "level": level_raw}
     sep_base.update(sel_kwargs)
     export_base = {"mode": mode, "start": start_raw, "end": end_raw, "q": q_raw,
-                   "active": active_src, "level": level_raw}
+                   "qmode": qmode, "active": active_src, "level": level_raw,
+                   "lgset": legend_ids_str}
     export_base.update(sel_kwargs)
 
     # Category “template” chips: Logs + each present non-log group (conf, xml,
     # db, pid, …). Each opens that group on its own, shown separately.
-    _catfilt = {"start": start_raw, "end": end_raw, "q": q_raw,
+    _catfilt = {"start": start_raw, "end": end_raw, "q": q_raw, "qmode": qmode,
                 "level": level_raw, "page_size": page_size}
     logs_url = url_for("view", **_catfilt)
     categories = []
@@ -1227,6 +1254,7 @@ def view():
         start_raw=start_raw,
         end_raw=end_raw,
         q_raw=q_raw,
+        qmode=qmode,
         page_size=page_size,
         paginate_enabled=PAGINATE,
         presets=PRESETS,
@@ -1285,6 +1313,7 @@ def export():
     sel = _resolve_selection(state, request.args, flash_errors=False)
     mode = sel["mode"]
     start, end, q_raw = sel["start"], sel["end"], sel["q_raw"]
+    qmode = sel["qmode"]
     level_raw = request.args.get("level", "").strip().lower()
     name_map = {s.source_id: s.name for s in sel["all_sources"]}
     fmt = request.args.get("format", "txt").lower()
@@ -1298,14 +1327,14 @@ def export():
         records = []
         if active_src is not None:
             recs = filter_records(state["sources"][active_src].records, start, end)
-            recs = filter_by_text(recs, q_raw)
+            recs = filter_by_text(recs, q_raw, qmode)
             records = filter_by_level(recs, level_raw)
         base = name_map.get(active_src, "log").rsplit("/", 1)[-1]
         stem = f"{base}"
     else:
         merged = merge_records(sel["selected"])
         merged = filter_records(merged, start, end)
-        merged = filter_by_text(merged, q_raw)
+        merged = filter_by_text(merged, q_raw, qmode)
         records = filter_by_level(merged, level_raw)
         stem = "merged"
 
@@ -1394,8 +1423,10 @@ def workspace_save():
     # reloaded (and stay visible in the current session). Compute the old scope
     # BEFORE marking the session as a saved workspace below.
     new_scope = "ws:" + name
+    old_scope = _bookmark_scope(state)
     try:
-        BOOKMARKS.rescope(username, _bookmark_scope(state), new_scope)
+        BOOKMARKS.rescope(username, old_scope, new_scope)
+        NOTEPAD.rescope(username, old_scope, new_scope)
     except Exception:  # noqa: BLE001
         app.logger.warning("Note migration on workspace save failed for %s", username)
     state["loaded_from"] = name
@@ -1637,6 +1668,28 @@ def bookmark_delete():
             srcid = None
         BOOKMARKS.delete_by_line(owner, src, seq, scope, srcid)
     return jsonify(ok=True, count=len(BOOKMARKS.list(owner, scope)))
+
+
+@app.route("/notepad")
+def notepad_get():
+    """Return the freeform notepad text for the currently loaded workspace."""
+    state = _current(_get_session_id())
+    scope = _bookmark_scope(state)
+    pad = NOTEPAD.get(_notes_owner(state), scope)
+    return jsonify(ok=True, has_scope=bool(scope),
+                   text=pad.get("text", ""), updated_at=pad.get("updated_at", ""))
+
+
+@app.route("/notepad", methods=["POST"])
+def notepad_save():
+    """Persist the freeform notepad text for the currently loaded workspace."""
+    state = _current(_get_session_id())
+    scope = _bookmark_scope(state)
+    if not scope:
+        return jsonify(ok=False, error="No logs loaded."), 400
+    pad = NOTEPAD.set(_notes_owner(state), scope, request.form.get("text", ""))
+    return jsonify(ok=True, text=pad.get("text", ""),
+                   updated_at=pad.get("updated_at", ""))
 
 
 @app.route("/bookmarks/export")

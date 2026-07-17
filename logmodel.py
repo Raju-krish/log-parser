@@ -284,16 +284,31 @@ def filter_records(records: list[LogRecord],
     return out
 
 
-def filter_by_text(records: list[LogRecord], query: str) -> list[LogRecord]:
+def filter_by_text(records: list[LogRecord], query: str,
+                   mode: str = "any") -> list[LogRecord]:
     """Case-insensitive substring filter on the line text.
 
-    Empty query returns records unchanged. Matches line-by-line (grep-like),
-    so only lines whose text contains the query are kept.
+    Multiple terms may be separated by ``|``. With ``mode="any"`` (default) a
+    line is kept when it contains AT LEAST ONE term; with ``mode="all"`` it must
+    contain EVERY term. Empty query returns records unchanged. Matches
+    line-by-line (grep-like).
     """
-    if not query:
+    terms = [t for t in (p.strip().casefold() for p in query.split("|")) if t]
+    if not terms:
         return records
-    needle = query.casefold()
-    return [rec for rec in records if needle in rec.text.casefold()]
+    if mode == "all":
+        out = []
+        for rec in records:
+            hay = rec.text.casefold()
+            if all(t in hay for t in terms):
+                out.append(rec)
+        return out
+    out = []
+    for rec in records:
+        hay = rec.text.casefold()
+        if any(t in hay for t in terms):
+            out.append(rec)
+    return out
 
 
 @dataclass

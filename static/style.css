@@ -278,6 +278,17 @@ svg.ic { width: 1em; height: 1em; vertical-align: -0.125em; }
 .ctl-filters .field-grow { flex: 1; }
 .ctl-filters .field-grow input { width: 100%; }
 .ctl-filters .field-sm input { width: 100px; }
+.q-field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.q-mode-toggle { display: inline-flex; flex: none; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; background: var(--bg); }
+.qm-btn {
+  background: transparent; color: var(--text); border: none; cursor: pointer;
+  font-family: 'Share Tech Mono', monospace; font-size: 10px; font-weight: 600;
+  letter-spacing: .5px; padding: 2px 9px; line-height: 1.5;
+  transition: background .12s, color .12s;
+}
+.qm-btn + .qm-btn { border-left: 1px solid var(--border); }
+.qm-btn.on { background: var(--accent); color: var(--on-accent); }
+.qm-btn:hover:not(.on) { color: var(--text-bright); }
 
 /* Footer: presets + export as chips */
 .ctl-footer { justify-content: space-between; background: rgba(0,0,0,0.15); }
@@ -334,11 +345,13 @@ svg.ic { width: 1em; height: 1em; vertical-align: -0.125em; }
 .logtable { width: 100%; border-collapse: collapse; font-family: 'Share Tech Mono', ui-monospace, monospace; font-size: 12.5px; }
 .logtable td { padding: 1px 10px 1px 0; vertical-align: top; white-space: pre-wrap; word-break: break-word; }
 .logtable td:first-child { padding-left: 12px; }
-.logtable td.ts { white-space: nowrap; color: var(--text); opacity: .85; width: 1%; }
+/* Keep the gutter columns (bookmark star + timestamp, source badge) out of
+   text selection so dragging across log lines copies ONLY the message text. */
+.logtable td.ts { white-space: nowrap; color: var(--text); opacity: .85; width: 1%; -webkit-user-select: none; user-select: none; }
 .logtable td.ts.muted { opacity: .3; }
-.logtable td.badge { white-space: nowrap; width: 1%; }
+.logtable td.badge { white-space: nowrap; width: 1%; -webkit-user-select: none; user-select: none; }
 .logtable td.badge span { padding: 0 6px; border-radius: 3px; color: #0a0e14; font-weight: 600; font-size: 11px; }
-.logtable td.msg { color: var(--text-bright); }
+.logtable td.msg { color: var(--text-bright); -webkit-user-select: text; user-select: text; }
 .logtable tr:hover { background: var(--accent-faint); }
 .logtable mark { background: var(--accent); color: var(--on-accent); padding: 0 1px; border-radius: 2px; }
 .logtable mark.jmark {
@@ -966,6 +979,20 @@ header.app .user {
 }
 .np-close { margin-left: auto; background: none; border: none; color: var(--text); font-size: 18px; padding: 0 4px; cursor: pointer; }
 .np-close:hover { color: var(--error); background: none; }
+.np-pad { display: flex; flex-direction: column; gap: 6px; padding: 12px 18px; border-bottom: 1px solid var(--border); }
+.np-pad-head { display: flex; align-items: center; gap: 8px; }
+.np-pad-title { font-size: 12px; font-weight: 600; color: var(--text-bright); letter-spacing: .3px; }
+.np-pad-status { margin-left: auto; font-size: 10px; opacity: .55; font-family: 'Share Tech Mono', monospace; white-space: nowrap; }
+.np-pad-status.err { color: var(--error); opacity: .9; }
+.np-pad-area {
+  width: 100%; min-height: 90px; max-height: 40vh; resize: vertical;
+  background: var(--bg); color: var(--text-bright);
+  border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+  font-family: 'Share Tech Mono', monospace; font-size: 12px; line-height: 1.5;
+  outline: none; transition: border-color .12s;
+}
+.np-pad-area:focus { border-color: var(--accent); }
+.np-pad-area::placeholder { opacity: .4; }
 .np-tools { display: flex; gap: 8px; padding: 12px 18px; border-bottom: 1px solid var(--border); }
 .np-filter { flex: 1; }
 .np-exp { padding: 6px 10px; font-size: 12px; }
@@ -1148,6 +1175,17 @@ header.app .user {
 .fb-q:focus { border-color: var(--accent); }
 .fb-count { color: var(--accent); font-weight: 600; padding: 0 2px; white-space: nowrap; }
 .fb-count.none { color: var(--error); font-weight: 400; }
+.fb-count-n {
+  box-sizing: content-box;
+  width: 2ch; text-align: center; vertical-align: middle;
+  background: var(--bg); color: var(--accent);
+  border: 1px solid var(--border); border-radius: 5px; padding: 2px 3px;
+  font-family: inherit; font-size: 12px; font-weight: 600; line-height: 1;
+  outline: none; transition: border-color .12s; -moz-appearance: textfield;
+}
+.fb-count-n:focus { border-color: var(--accent); }
+.fb-count-sep, .fb-count-total, .fb-count-nomatch { vertical-align: middle; }
+.fb-count-sep { opacity: .7; margin: 0 3px; }
 .fb-btn {
   background: var(--bg); border: 1px solid var(--border); color: var(--text-bright);
   width: 28px; height: 28px; border-radius: 50%; padding: 0; cursor: pointer;

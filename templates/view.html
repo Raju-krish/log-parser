@@ -53,8 +53,15 @@
         <input type="text" id="end" name="end" value="{{ end_raw }}" placeholder="2026-05-05 11:16:00" />
       </div>
       <div class="field field-grow">
-        <label for="q">Message contains</label>
-        <input type="text" id="q" name="q" value="{{ q_raw }}" placeholder="e.g. brlan0 down" />
+        <div class="q-field-head">
+          <label for="q">Message contains <span class="hint">(| separates terms)</span></label>
+          <span class="q-mode-toggle" role="group" aria-label="Match mode for multiple terms">
+            <button type="button" class="qm-btn" data-qmode="any" title="Keep lines containing ANY term">ANY</button>
+            <button type="button" class="qm-btn" data-qmode="all" title="Keep lines containing ALL terms">ALL</button>
+          </span>
+        </div>
+        <input type="text" id="q" name="q" value="{{ q_raw }}" placeholder="e.g. brlan0 down | wifi error" />
+        <input type="hidden" name="qmode" id="qmode" value="{{ qmode }}">
       </div>
       <div class="field field-grow">
         <label for="jump">Global search <span class="hint">(and jump to the match)</span></label>
@@ -108,7 +115,7 @@
         {% endfor %}
         <a class="chip {{ 'chip-on' if all_selected and not active_preset }}" href="{{ url_for('view', all=1, mode=mode, start=start_raw, end=end_raw, q=q_raw, page_size=page_size, jump=jump_raw, level=level) }}">All sources</a>
       </div>
-      <div class="ctl-inline">
+      <div class="ctl-inline" id="export-bar">
         <span class="ctl-label">Export</span>
         <a class="chip" href="{{ url_for('export', format='txt', **export_base) }}"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg> .txt</a>
         <a class="chip" href="{{ url_for('export', format='csv', **export_base) }}"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg> .csv</a>
@@ -126,7 +133,7 @@
       var p = new URLSearchParams();
       var m = form.querySelector('input[name="mode"]:checked');
       if (m) p.append('mode', m.value);
-      ['start', 'end', 'q', 'page_size', 'lgset', 'jump', 'level'].forEach(function (name) {
+      ['start', 'end', 'q', 'qmode', 'page_size', 'lgset', 'jump', 'level'].forEach(function (name) {
         var el = form.querySelector('[name="' + name + '"]');
         if (el) p.append(name, el.value);
       });
@@ -249,15 +256,22 @@
         var ck = form.querySelector('input[name="mode"]:checked');
         if (ck) { var seg = ck.closest('.seg'); if (seg) seg.classList.add('on'); }
       }
-      ['lgset', 'start', 'end', 'q', 'page_size', 'jump', 'level'].forEach(function (name) {
+      ['lgset', 'start', 'end', 'q', 'qmode', 'page_size', 'jump', 'level'].forEach(function (name) {
         var d = dForm.querySelector('[name="' + name + '"]');
         var l = form.querySelector('[name="' + name + '"]');
         if (d && l && document.activeElement !== l) l.value = d.value;
       });
+      updateQmodeUI();
       // Sync preset/All-sources highlight from the fetched controls.
       var dp = doc.getElementById('preset-bar');
       var lp = document.getElementById('preset-bar');
       if (dp && lp) lp.innerHTML = dp.innerHTML;
+      // The export links live outside #results and encode the current selection
+      // in their href. Refresh them so a download reflects the latest picks
+      // instead of the initial (default preset) selection.
+      var dx = doc.getElementById('export-bar');
+      var lx = document.getElementById('export-bar');
+      if (dx && lx) lx.innerHTML = dx.innerHTML;
       var ds = doc.getElementById('ss-summary');
       var ls = document.getElementById('ss-summary');
       if (ds && ls) ls.textContent = ds.textContent;
@@ -271,6 +285,26 @@
       if (ev.target.name === 'src') { setLgsetToChecked(); updateSummary(); }  // instant count
       loadView(formURL());
     });
+
+    // AND/OR toggle for multi-term "Message contains" (terms split on |).
+    var qmodeField = form.querySelector('[name="qmode"]');
+    function updateQmodeUI() {
+      var m = (qmodeField && qmodeField.value === 'all') ? 'all' : 'any';
+      form.querySelectorAll('.qm-btn').forEach(function (b) {
+        b.classList.toggle('on', b.getAttribute('data-qmode') === m);
+      });
+    }
+    form.querySelectorAll('.qm-btn').forEach(function (b) {
+      b.addEventListener('click', function () {
+        if (!qmodeField) return;
+        var m = b.getAttribute('data-qmode');
+        if (qmodeField.value === m) return;   // no change
+        qmodeField.value = m;
+        updateQmodeUI();
+        loadView(formURL());
+      });
+    });
+    updateQmodeUI();
 
     // Keep the count fresh whenever the Sources panel is opened.
     var srcDetails = document.querySelector('.sources-details');
@@ -443,6 +477,14 @@
     <h3>★ Investigation notes <span class="np-count" id="np-count">{{ bookmark_count }}</span></h3>
     <button type="button" class="np-close" id="notes-close" aria-label="Close">✕</button>
   </header>
+  <section class="np-pad" id="np-pad-wrap">
+    <div class="np-pad-head">
+      <span class="np-pad-title">&#128211; Workspace notepad</span>
+      <span class="np-pad-status" id="np-pad-status" aria-live="polite"></span>
+    </div>
+    <textarea id="np-pad" class="np-pad-area" rows="6" spellcheck="false"
+              placeholder="Jot anything about this workspace — findings, hypotheses, commands, links. Saves automatically and stays with this workspace."></textarea>
+  </section>
   <div class="np-tools">
     <input type="text" id="np-filter" class="np-filter" placeholder="Filter notes…" autocomplete="off">
     <a class="btn secondary np-exp" href="{{ url_for('bookmarks_export', format='txt') }}"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg> .txt</a>
@@ -475,7 +517,13 @@
 <div class="find-bar" id="find-bar" hidden>
   <span class="fb-icon"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M20 20l-3.5-3.5"/></svg></span>
   <input type="text" class="fb-q" id="fb-q" placeholder="search text…" aria-label="Search text — edit to re-search" autocomplete="off" spellcheck="false" />
-  <span class="fb-count" id="fb-count"></span>
+  <span class="fb-count" id="fb-count">
+    <span class="fb-count-nomatch" id="fb-count-nomatch" hidden>no matches</span>
+    <input type="text" class="fb-count-n" id="fb-count-n" inputmode="numeric" pattern="[0-9]*"
+           title="Type a match number and press Enter to jump" aria-label="Current match number — type a number and press Enter to jump to it" hidden />
+    <span class="fb-count-sep" id="fb-count-sep" hidden>/</span>
+    <span class="fb-count-total" id="fb-count-total" hidden></span>
+  </span>
   <button type="button" class="fb-btn" id="fb-prev" title="Previous match (Shift+Enter or Shift+F3)" aria-label="Previous match">◀</button>
   <button type="button" class="fb-btn" id="fb-next" title="Next match (Enter or F3)" aria-label="Next match">▶</button>
   <button type="button" class="fb-btn fb-x" id="fb-clear" title="Clear (Esc)" aria-label="Clear jump">✕</button>
@@ -504,6 +552,7 @@
     var URL_ADD = "{{ url_for('bookmark_add') }}";
     var URL_DEL = "{{ url_for('bookmark_delete') }}";
     var URL_VIEW = "{{ url_for('view') }}";
+    var URL_PAD = "{{ url_for('notepad_get') }}";
 
     var fab = document.getElementById('notes-fab');
     var panel = document.getElementById('notes-panel');
@@ -513,6 +562,8 @@
     var badge = document.getElementById('notes-badge');
     var npCount = document.getElementById('np-count');
     var filterEl = document.getElementById('np-filter');
+    var padEl = document.getElementById('np-pad');
+    var padStatus = document.getElementById('np-pad-status');
 
     var cache = {};          // key -> bookmark object
     var loaded = false;
@@ -758,12 +809,65 @@
           '</div></div>';
       }).join('');
     }
+    // ---- Workspace notepad (freeform scratch text, saved per workspace) ----
+    var padSaved = '';
+    var padTimer = null;
+    function setPadStatus(msg, isErr) {
+      if (!padStatus) return;
+      padStatus.textContent = msg || '';
+      padStatus.classList.toggle('err', !!isErr);
+    }
+    function loadPad() {
+      if (!padEl) return;
+      fetch(URL_PAD, { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          // Don't clobber the box if the user is already typing in it.
+          if (document.activeElement !== padEl) padEl.value = d.text || '';
+          padSaved = padEl.value;
+          setPadStatus(d.updated_at ? ('Saved ' + String(d.updated_at).replace('T', ' ')) : '');
+        })
+        .catch(function () { setPadStatus('Could not load', true); });
+    }
+    function savePad() {
+      if (padTimer) { clearTimeout(padTimer); padTimer = null; }
+      if (!padEl || padEl.value === padSaved) return;
+      var text = padEl.value;
+      setPadStatus('Saving\u2026');
+      post(URL_PAD, { text: text })
+        .then(function () { padSaved = text; setPadStatus('Saved'); })
+        .catch(function () { setPadStatus('Save failed', true); });
+    }
+    function flushPad(useBeacon) {
+      if (padTimer) { clearTimeout(padTimer); padTimer = null; }
+      if (!padEl || padEl.value === padSaved) return;
+      // On page unload a normal fetch may be cancelled; use sendBeacon so the
+      // last edits still reach the server.
+      if (useBeacon && navigator.sendBeacon) {
+        try {
+          var fd = new FormData(); fd.append('text', padEl.value);
+          if (navigator.sendBeacon(URL_PAD, fd)) { padSaved = padEl.value; return; }
+        } catch (e) { /* fall through to fetch */ }
+      }
+      savePad();
+    }
+    if (padEl) {
+      padEl.addEventListener('input', function () {
+        setPadStatus('Editing\u2026');
+        if (padTimer) clearTimeout(padTimer);
+        padTimer = setTimeout(savePad, 800);
+      });
+      padEl.addEventListener('blur', function () { flushPad(false); });
+      window.addEventListener('beforeunload', function () { flushPad(true); });
+    }
     function openPanel() {
       panel.hidden = false; overlay.hidden = false;
       document.body.classList.add('notes-open');
+      loadPad();
       loadCache(true).then(function () { renderList(); resyncRows(); });
     }
     function closePanel() {
+      flushPad(false);
       panel.hidden = true; overlay.hidden = true;
       document.body.classList.remove('notes-open');
     }
@@ -1084,6 +1188,10 @@
     if (!bar || !cForm) return;
     var fbQ = document.getElementById('fb-q');
     var fbCount = document.getElementById('fb-count');
+    var fbCountN = document.getElementById('fb-count-n');
+    var fbCountTotal = document.getElementById('fb-count-total');
+    var fbCountSep = document.getElementById('fb-count-sep');
+    var fbCountNoMatch = document.getElementById('fb-count-nomatch');
     var fbPrev = document.getElementById('fb-prev');
     var fbNext = document.getElementById('fb-next');
     var URL_VIEW = "{{ url_for('view') }}";
@@ -1106,14 +1214,48 @@
       bar.hidden = false;
       var nn = document.getElementById('notes-nav'); if (nn) nn.hidden = true;  // one bar at a time
       if (document.activeElement !== fbQ) fbQ.value = q;   // reflect the term, but never clobber a mid-edit
-      fbCount.textContent = st.total ? (st.n + ' / ' + st.total) : 'no matches';
-      fbCount.classList.toggle('none', !st.total);
+      // Editable current-match index alongside the total (e.g. [ 1 ] / 48).
+      // Never overwrite the number box while the user is typing in it.
+      var has = st.total > 0;
+      fbCountNoMatch.hidden = has;
+      fbCountN.hidden = !has;
+      fbCountSep.hidden = !has;
+      fbCountTotal.hidden = !has;
+      if (has) {
+        if (document.activeElement !== fbCountN) fbCountN.value = st.n;
+        fbCountTotal.textContent = st.total;
+        // Keep the box just wide enough for the largest match number.
+        fbCountN.style.width = (String(st.total).length + 0.5) + 'ch';
+      }
+      fbCount.classList.toggle('none', !has);
       fbPrev.disabled = st.total < 2;
       fbNext.disabled = st.total < 2;
     }
     function scrollToMatch() {
       var tgt = document.getElementById('jump-target');
       if (tgt) tgt.scrollIntoView({ block: 'center' });   // the row animates via CSS
+    }
+    // Build the base view URL + params carrying the current jump term.
+    function jumpParams(q) {
+      var base = window.__lpFormURL ? window.__lpFormURL() : (URL_VIEW + '?');
+      var parts = base.split('?');
+      var p = new URLSearchParams(parts[1] || '');
+      p.set('jump', q);
+      p.delete('page');
+      return { url0: parts[0], p: p };
+    }
+    // Fetch the results fragment for the given params, swap it in, then refresh
+    // the bar and centre the resolved match.
+    function submit(url0, p) {
+      p.set('frag', '1');
+      busy = true;
+      fetch(url0 + '?' + p.toString(), { headers: { 'X-Requested-With': 'fetch' }, credentials: 'same-origin' })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          if (results) results.innerHTML = html;
+          refresh(); scrollToMatch(); busy = false;
+        })
+        .catch(function () { busy = false; });
     }
     // Step to a match: delta +1/-1 relative to the current one, or a fresh
     // search (n=1) when the jump text differs from what is on screen.
@@ -1122,34 +1264,58 @@
       if (!q || busy) return;
       var st = state();
       var fresh = (!st || st.q !== q);
-      var base = window.__lpFormURL ? window.__lpFormURL() : (URL_VIEW + '?');
-      var parts = base.split('?');
-      var p = new URLSearchParams(parts[1] || '');
-      p.set('jump', q);
-      p.delete('page');
+      var jp = jumpParams(q);
       if (fresh) {
         // New term: start from the page the reader is on — the server resolves
         // the first match at/after it and reports its true global index —
         // instead of teleporting to match #1 on page 1.
         var cur = parseInt(new URLSearchParams(location.search).get('page') || '1', 10) || 1;
-        p.set('jnear', String(cur)); p.delete('jumpn');
+        jp.p.set('jnear', String(cur)); jp.p.delete('jumpn');
       } else {
         var n = st.n + delta; if (n < 1) n = st.total || 1; if (n > st.total) n = 1;
-        p.set('jumpn', String(n)); p.delete('jnear');
+        jp.p.set('jumpn', String(n)); jp.p.delete('jnear');
       }
-      p.set('frag', '1');
-      busy = true;
-      fetch(parts[0] + '?' + p.toString(), { headers: { 'X-Requested-With': 'fetch' }, credentials: 'same-origin' })
-        .then(function (r) { return r.text(); })
-        .then(function (html) {
-          if (results) results.innerHTML = html;
-          refresh(); scrollToMatch(); busy = false;
-        })
-        .catch(function () { busy = false; });
+      submit(jp.url0, jp.p);
+    }
+    // Jump straight to an absolute match number typed into the counter box.
+    function goTo(nRaw) {
+      var q = jumpVal();
+      if (!q || busy) return;
+      var st = state();
+      if (!st || !st.total) return;
+      var n = parseInt(nRaw, 10);
+      if (isNaN(n)) { refresh(); return; }          // non-numeric → restore the shown value
+      if (n < 1) n = 1; else if (n > st.total) n = st.total;
+      if (n === st.n) { refresh(); return; }         // already there → just normalise the box
+      var jp = jumpParams(q);
+      jp.p.set('jumpn', String(n)); jp.p.delete('jnear');
+      submit(jp.url0, jp.p);
     }
 
     fbNext.addEventListener('click', function () { go(1); });
     fbPrev.addEventListener('click', function () { go(-1); });
+    // Editable counter: type a match number and press Enter to jump to it.
+    fbCountN.addEventListener('input', function () {
+      var cleaned = fbCountN.value.replace(/[^0-9]/g, '');
+      if (cleaned !== fbCountN.value) fbCountN.value = cleaned;
+    });
+    fbCountN.addEventListener('focus', function () { fbCountN.select(); });
+    fbCountN.addEventListener('blur', function () { if (!busy) refresh(); });
+    fbCountN.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        var st = state();
+        var typed = parseInt(fbCountN.value, 10);
+        // A changed, in-range number jumps straight there; otherwise Enter /
+        // Shift+Enter just step next / previous like the rest of the bar.
+        if (st && !isNaN(typed) && typed >= 1 && typed <= st.total && typed !== st.n) {
+          goTo(typed);
+        } else {
+          go(e.shiftKey ? -1 : 1);
+        }
+        fbCountN.blur();   // hand off to the global Enter / Shift+Enter stepper
+      } else if (e.key === 'Escape') { e.preventDefault(); refresh(); fbCountN.blur(); }
+    });
     // Editable term: retype in the bar and press Enter to run a fresh search,
     // without scrolling back up to the Global search box.
     function applyFbQuery(delta) {
@@ -1194,10 +1360,21 @@
         fbQ.focus(); fbQ.select();
       }
     });
-    // F3 / Shift+F3 step through matches; Esc clears. Active whenever matches exist.
+    // F3 / Shift+F3 and Enter / Shift+Enter step through matches while the bar
+    // floats — from anywhere on the page, not just the search box. Esc clears.
     document.addEventListener('keydown', function (e) {
       if (bar.hidden) return;
       if (e.key === 'F3') { e.preventDefault(); go(e.shiftKey ? -1 : 1); }
+      else if (e.key === 'Enter') {
+        // The bar's own fields handle Enter themselves; leave Enter alone when
+        // it is typed into any other field, editor, link, or button.
+        var et = e.target, etag = (et.tagName || '').toLowerCase();
+        if (et === fbQ || et === fbCountN) return;
+        if (etag === 'input' || etag === 'textarea' || etag === 'select'
+            || etag === 'button' || etag === 'a' || et.isContentEditable) return;
+        e.preventDefault();
+        go(e.shiftKey ? -1 : 1);
+      }
       else if (e.key === 'Escape') {
         var tag = (e.target.tagName || '').toLowerCase();
         if (tag !== 'input' && tag !== 'textarea') document.getElementById('fb-clear').click();
