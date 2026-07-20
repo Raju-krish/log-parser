@@ -621,6 +621,23 @@ header.app .user {
 .ws-share-select { cursor: pointer; }
 .ws-share-form .btn { padding: 6px 12px; }
 .wsp-hint { font-size: 11px; opacity: .6; margin-top: 8px; white-space: normal; }
+.ws-name-view { display: inline-flex; align-items: center; gap: 6px; }
+.ws-name-view[hidden], .ws-name-form[hidden] { display: none; }
+.ws-name-edit {
+  background: none; border: none; cursor: pointer; color: var(--text);
+  opacity: .35; padding: 2px; line-height: 0; border-radius: 4px;
+  transition: opacity .12s, color .12s, background .12s;
+}
+.ws-table tbody tr:hover .ws-name-edit { opacity: .7; }
+.ws-name-edit:hover { opacity: 1; color: var(--accent); background: var(--surface2); }
+.ws-name-form { display: inline-flex; align-items: center; gap: 6px; }
+.ws-name-form input {
+  min-width: 0; width: 190px; max-width: 100%; padding: 5px 8px;
+  font-family: inherit; font-size: 12.5px; color: var(--text-bright);
+  background: var(--bg); border: 1px solid var(--accent); border-radius: 6px;
+}
+.ws-name-form input:focus { outline: none; border-color: var(--accent); }
+.ws-name-save, .ws-name-cancel { padding: 5px 8px; line-height: 0; }
 
 /* ---- Save workspace (view page) ---- */
 .save-ws-card { padding: 16px 24px; }
@@ -926,7 +943,19 @@ header.app .user {
 .logtable tr:hover .pin-btn { opacity: .7; }
 .pin-btn:hover { opacity: 1; color: var(--accent); background: none; transform: scale(1.25); }
 .pin-btn.on { opacity: 1; color: var(--bookmark); }
-.ts-val { white-space: nowrap; }
+.ts-val { white-space: nowrap; cursor: pointer; position: relative; text-underline-offset: 2px; transition: color .12s; }
+.ts-val:hover { color: var(--accent); text-decoration: underline dotted; }
+.ts-val.copied, .ts-val.copy-fail { color: var(--accent); }
+.ts-val.copied::after, .ts-val.copy-fail::after {
+  position: absolute; left: 0; bottom: calc(100% + 4px);
+  font-size: 10px; font-weight: 600; letter-spacing: .3px;
+  padding: 2px 7px; border-radius: 4px; white-space: nowrap; z-index: 30;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .35); pointer-events: none;
+  animation: ts-copied-in .12s ease-out;
+}
+.ts-val.copied::after { content: "Copied \2713"; background: var(--accent); color: var(--on-accent); }
+.ts-val.copy-fail::after { content: "Copy failed"; background: var(--error); color: #fff; }
+@keyframes ts-copied-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 /* Pinned lines are marked by the filled star + left rail only — no yellow
    background fill, so a pinned error/warn row keeps its severity color and
    stays easy to tell apart. */
@@ -968,8 +997,8 @@ header.app .user {
 .notes-panel[hidden] { display: none; }
 @keyframes np-slide { from { transform: translateX(30px); opacity: .4; } to { transform: none; opacity: 1; } }
 .np-head {
-  display: flex; align-items: center; gap: 10px;
-  padding: 16px 18px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px 10px 14px; border-bottom: 1px solid var(--border);
 }
 .np-head h3 { font-size: 15px; color: var(--text-bright); font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .np-head h3 { color: var(--bookmark); }
@@ -979,13 +1008,26 @@ header.app .user {
 }
 .np-close { margin-left: auto; background: none; border: none; color: var(--text); font-size: 18px; padding: 0 4px; cursor: pointer; }
 .np-close:hover { color: var(--error); background: none; }
-.np-pad { display: flex; flex-direction: column; gap: 6px; padding: 12px 18px; border-bottom: 1px solid var(--border); }
+.np-tabs { display: flex; gap: 4px; }
+.np-tab {
+  background: none; border: none; cursor: pointer;
+  color: var(--text); font-size: 13px; font-weight: 600;
+  padding: 7px 13px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 7px;
+  transition: background .12s, color .12s;
+}
+.np-tab:hover { color: var(--text-bright); background: var(--surface2); }
+.np-tab.on { background: var(--surface2); color: var(--text-bright); }
+#tab-pinned.on { color: var(--bookmark); }
+.np-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.np-panel[hidden] { display: none; }
+.np-pad { display: flex; flex-direction: column; gap: 8px; padding: 14px 18px; flex: 1; min-height: 0; }
 .np-pad-head { display: flex; align-items: center; gap: 8px; }
 .np-pad-title { font-size: 12px; font-weight: 600; color: var(--text-bright); letter-spacing: .3px; }
 .np-pad-status { margin-left: auto; font-size: 10px; opacity: .55; font-family: 'Share Tech Mono', monospace; white-space: nowrap; }
 .np-pad-status.err { color: var(--error); opacity: .9; }
 .np-pad-area {
-  width: 100%; min-height: 90px; max-height: 40vh; resize: vertical;
+  width: 100%; flex: 1; min-height: 140px; resize: none;
   background: var(--bg); color: var(--text-bright);
   border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
   font-family: 'Share Tech Mono', monospace; font-size: 12px; line-height: 1.5;

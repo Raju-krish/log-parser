@@ -474,17 +474,14 @@
 <div class="notes-overlay" id="notes-overlay" hidden></div>
 <aside class="notes-panel" id="notes-panel" hidden aria-label="Saved notes">
   <header class="np-head">
-    <h3>★ Investigation notes <span class="np-count" id="np-count">{{ bookmark_count }}</span></h3>
+    <div class="np-tabs" role="tablist" aria-label="Notes and notepad">
+      <button type="button" class="np-tab on" id="tab-pinned" role="tab" aria-selected="true" aria-controls="np-panel-pinned" data-tab="pinned">&#9733; Pinned <span class="np-count" id="np-count">{{ bookmark_count }}</span></button>
+      <button type="button" class="np-tab" id="tab-pad" role="tab" aria-selected="false" aria-controls="np-panel-pad" data-tab="pad">&#128211; Notepad</button>
+    </div>
     <button type="button" class="np-close" id="notes-close" aria-label="Close">✕</button>
   </header>
-  <section class="np-pad" id="np-pad-wrap">
-    <div class="np-pad-head">
-      <span class="np-pad-title">&#128211; Workspace notepad</span>
-      <span class="np-pad-status" id="np-pad-status" aria-live="polite"></span>
-    </div>
-    <textarea id="np-pad" class="np-pad-area" rows="6" spellcheck="false"
-              placeholder="Jot anything about this workspace — findings, hypotheses, commands, links. Saves automatically and stays with this workspace."></textarea>
-  </section>
+
+  <div class="np-panel" id="np-panel-pinned" role="tabpanel" aria-labelledby="tab-pinned">
   <div class="np-tools">
     <input type="text" id="np-filter" class="np-filter" placeholder="Filter notes…" autocomplete="off">
     <a class="btn secondary np-exp" href="{{ url_for('bookmarks_export', format='txt') }}"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg> .txt</a>
@@ -493,6 +490,18 @@
   </div>
   <div class="np-list" id="np-list">
     <div class="np-empty">Loading…</div>
+  </div>
+  </div>
+
+  <div class="np-panel" id="np-panel-pad" role="tabpanel" aria-labelledby="tab-pad" hidden>
+    <section class="np-pad" id="np-pad-wrap">
+      <div class="np-pad-head">
+        <span class="np-pad-title">Autosaved &amp; kept with this workspace</span>
+        <span class="np-pad-status" id="np-pad-status" aria-live="polite"></span>
+      </div>
+      <textarea id="np-pad" class="np-pad-area" spellcheck="false"
+                placeholder="Jot anything about this workspace — findings, hypotheses, commands, links. Saves automatically and stays with this workspace."></textarea>
+    </section>
   </div>
 </aside>
 
@@ -781,10 +790,20 @@
     }
 
     // ---- Notes side panel ----
+    // Chronological order by the log line's own timestamp (epoch). Undated
+    // lines fall to the end, ordered by when they were pinned.
+    function byTimestamp(a, b) {
+      var ea = parseFloat(a.epoch), eb = parseFloat(b.epoch);
+      var na = isNaN(ea), nb = isNaN(eb);
+      if (na && nb) return (a.created_at || '').localeCompare(b.created_at || '');
+      if (na) return 1;
+      if (nb) return -1;
+      return ea - eb;
+    }
     function renderList() {
       var q = (filterEl && filterEl.value || '').trim().toLowerCase();
       var items = Object.keys(cache).map(function (k) { return cache[k]; });
-      items.sort(function (a, b) { return (b.created_at || '').localeCompare(a.created_at || ''); });
+      items.sort(byTimestamp);
       if (q) items = items.filter(function (b) {
         return ((b.note || '') + ' ' + (b.text || '') + ' ' + (b.source || '')).toLowerCase().indexOf(q) !== -1;
       });
@@ -1008,7 +1027,7 @@
 
     function orderedList() {
       var items = Object.keys(cache).map(function (k) { return cache[k]; });
-      items.sort(function (a, b) { return (b.created_at || '').localeCompare(a.created_at || ''); });
+      items.sort(byTimestamp);
       return items;
     }
     function renderNotesNav() {
@@ -1391,6 +1410,68 @@
     var results = document.getElementById('results');
     if (results && window.MutationObserver) new MutationObserver(refresh).observe(results, { childList: true });
     refresh();
+  })();
+</script>
+
+<script>
+  // Click a first-column timestamp to copy it — ready to paste into the
+  // Start/End time filters. The timestamp column is non-selectable (so a drag
+  // copies only the message text), so clicking is how you grab a timestamp.
+  (function () {
+    function legacyCopy(text) {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed'; ta.style.top = '-1000px'; ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select(); try { ta.setSelectionRange(0, ta.value.length); } catch (e) {}
+      var ok = false; try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      document.body.removeChild(ta); return ok;
+    }
+    function copyText(text) {
+      // navigator.clipboard needs a secure context (HTTPS/localhost); this tool
+      // is served over plain HTTP on the LAN, so fall back to execCommand.
+      if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text).then(function () { return true; },
+          function () { return legacyCopy(text); });
+      }
+      return Promise.resolve(legacyCopy(text));
+    }
+    function flash(el, ok) {
+      el.classList.remove('copied', 'copy-fail');
+      void el.offsetWidth;                       // reflow so rapid re-clicks re-animate
+      el.classList.add(ok ? 'copied' : 'copy-fail');
+      setTimeout(function () { el.classList.remove('copied', 'copy-fail'); }, 1100);
+    }
+    document.addEventListener('click', function (ev) {
+      var tsv = ev.target.closest && ev.target.closest('#results .logtable td.ts .ts-val');
+      if (!tsv) return;
+      var text = (tsv.textContent || '').trim();
+      if (!text) return;
+      Promise.resolve(copyText(text)).then(function (ok) { flash(tsv, ok !== false); });
+    });
+  })();
+</script>
+
+<script>
+  // Notes panel tabs: keep the pinned "investigation notes" list and the
+  // freeform workspace notepad on separate tabs so the panel is easy to scan.
+  (function () {
+    var tabs = document.querySelectorAll('.np-tab');
+    if (!tabs.length) return;
+    function activate(name) {
+      tabs.forEach(function (t) {
+        var on = t.getAttribute('data-tab') === name;
+        t.classList.toggle('on', on);
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      ['pinned', 'pad'].forEach(function (k) {
+        var p = document.getElementById('np-panel-' + k);
+        if (p) p.hidden = (k !== name);
+      });
+    }
+    tabs.forEach(function (t) {
+      t.addEventListener('click', function () { activate(t.getAttribute('data-tab')); });
+    });
   })();
 </script>
 

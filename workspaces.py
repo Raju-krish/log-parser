@@ -251,6 +251,39 @@ class WorkspaceStore:
             raise WorkspaceError("Workspace not found.")
         shutil.rmtree(wdir, ignore_errors=True)
 
+    def rename(self, username: str, slug: str, new_name: str) -> str:
+        """Rename a saved workspace's display name, moving its directory when the
+        new name slugifies differently. Returns the new slug. Owner only.
+        """
+        new_slug = slugify(new_name)
+        if not new_slug:
+            raise WorkspaceError("Please enter a workspace name using letters or digits.")
+        with self._lock:
+            wdir = self._ws_dir(username, slug)
+            mpath = os.path.join(wdir, "manifest.json")
+            if not os.path.isfile(mpath):
+                raise WorkspaceError("Workspace not found.")
+            # A different target slug must not clobber another workspace.
+            # normcase avoids a false collision on case-insensitive filesystems
+            # (Windows) when only the name's casing changed.
+            if os.path.normcase(new_slug) != os.path.normcase(slug) \
+                    and self.exists(username, new_slug):
+                raise WorkspaceError(
+                    f"A workspace named '{new_slug}' already exists \u2014 choose another name.")
+            try:
+                with open(mpath, "r", encoding="utf-8") as fh:
+                    meta = json.load(fh)
+            except (OSError, json.JSONDecodeError) as exc:
+                raise WorkspaceError(f"Corrupt workspace manifest: {exc}") from exc
+            meta["name"] = new_name.strip()
+            tmp = mpath + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(meta, fh, indent=2)
+            os.replace(tmp, mpath)
+            if new_slug != slug:
+                os.rename(wdir, self._ws_dir(username, new_slug))
+            return new_slug
+
     # --- sharing -----------------------------------------------------------------
 
     def set_shares(self, username: str, slug: str, usernames) -> list:

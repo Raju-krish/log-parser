@@ -1480,6 +1480,43 @@ def workspace_delete(slug):
     return redirect(url_for("index"))
 
 
+@app.route("/workspace/<slug>/rename", methods=["POST"])
+def workspace_rename(slug):
+    """Rename one of the caller's own saved workspaces."""
+    username = session["username"]
+    meta = WORKSPACES.get(username, slug)
+    if meta is None:
+        flash("Workspace not found.", "error")
+        return redirect(url_for("index"))
+    new_name = request.form.get("name", "").strip()
+    if not ws_slugify(new_name):
+        flash("Enter a workspace name using letters or digits.", "error")
+        return redirect(url_for("index"))
+    old_name = meta.get("name") or slug
+    try:
+        new_slug = WORKSPACES.rename(username, slug, new_name)
+    except WorkspaceError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("index"))
+    # Notes and the notepad are keyed by the workspace's display name
+    # ("ws:<name>"), so move them across so they follow the rename.
+    old_scope, new_scope = "ws:" + old_name, "ws:" + new_name
+    if old_scope != new_scope:
+        try:
+            BOOKMARKS.rescope(username, old_scope, new_scope)
+            NOTEPAD.rescope(username, old_scope, new_scope)
+        except Exception:  # noqa: BLE001
+            app.logger.warning("Note rescope on workspace rename failed for %s", username)
+    # Keep a currently-loaded session pointing at the renamed workspace.
+    st = _SESSIONS.get(_get_session_id())
+    if st and st.get("ws_owner") == username and st.get("ws_name") == old_name:
+        st["loaded_from"] = new_name
+        st["ws_scope"] = new_scope
+        st["ws_name"] = new_name
+    flash(f"Renamed workspace to '{new_slug}'.", "info")
+    return redirect(url_for("index"))
+
+
 @app.route("/workspace/<slug>/share", methods=["POST"])
 def workspace_share(slug):
     """Share one of the caller's own workspaces with other named users."""

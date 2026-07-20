@@ -116,7 +116,7 @@
                         data-color="{{ row.color }}"
                         title="{{ 'Edit note' if row.pinned else 'Pin this line — or drag the timestamps down to bookmark a range' }}"
                         aria-label="Bookmark line">{{ '★' if row.pinned else '☆' }}</button>
-                <span class="ts-val">{{ row.ts }}</span>
+                <span class="ts-val" title="Click to copy timestamp">{{ row.ts }}</span>
               </td>
               <td class="badge"><span style="background: {{ row.color }};" title="{{ row.name }}">{{ row.name | short_source }}</span></td>
               <td class="msg">{{ row.text | highlight(q_raw, jump_raw) }}</td>
@@ -185,7 +185,7 @@
                             data-color="{{ panel.source.color }}"
                             title="{{ 'Edit note' if _pinned else 'Pin this line — or drag the timestamps down to bookmark a range' }}"
                             aria-label="Bookmark line">{{ '★' if _pinned else '☆' }}</button>
-                    <span class="ts-val">{{ format_canonical(r.epoch) if r.epoch is not none else '' }}</span>
+                    <span class="ts-val" title="Click to copy timestamp">{{ format_canonical(r.epoch) if r.epoch is not none else '' }}</span>
                   </td>
                   <td class="msg">{{ r.text | highlight(q_raw, jump_raw) }}</td>
                 </tr>

@@ -55,7 +55,15 @@ class BookmarkStore:
             items = self._load(username)
         if scope is not None:
             items = [b for b in items if b.get("scope", "") == scope]
-        items.sort(key=lambda b: b.get("created_at", ""), reverse=True)
+        # Order by the log line's own timestamp (chronological) so notes read in
+        # the same order as the timeline; undated lines sink to the end, ordered
+        # by when they were pinned.
+        def _ts_key(b):
+            try:
+                return (0, float(b.get("epoch")))
+            except (TypeError, ValueError):
+                return (1, b.get("created_at", ""))
+        items.sort(key=_ts_key)
         return items
 
     def keys(self, username: str, scope=None) -> set:
