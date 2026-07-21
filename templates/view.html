@@ -550,6 +550,13 @@
   <button type="button" class="fb-btn fb-x" id="nn-clear" title="Close (Esc)" aria-label="Close">✕</button>
 </div>
 
+<button type="button" class="cols-toggle" id="cols-toggle"
+        title="Hide the timestamp &amp; source columns for full-width logs"
+        aria-pressed="false" aria-label="Toggle timestamp and source columns">
+  <svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M9 4v16M15 4v16"/></svg>
+  <span class="cols-toggle-label">Wide view</span>
+</button>
+
 <div id="results">
 {% include "_results.html" %}
 </div>{# results #}
@@ -1471,6 +1478,34 @@
     }
     tabs.forEach(function (t) {
       t.addEventListener('click', function () { activate(t.getAttribute('data-tab')); });
+    });
+  })();
+</script>
+
+<script>
+  // Floating toggle: collapse the timestamp + source columns so each log line
+  // runs full width on a single line. The class lives on <body> (so it survives
+  // AJAX result swaps) and is remembered in localStorage across reloads.
+  (function () {
+    var btn = document.getElementById('cols-toggle');
+    if (!btn) return;
+    var label = btn.querySelector('.cols-toggle-label');
+    var KEY = 'lp-logs-focus';
+    function apply(on) {
+      document.body.classList.toggle('logs-focus', on);
+      btn.classList.toggle('on', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      if (label) label.textContent = on ? 'Show columns' : 'Wide view';
+      btn.title = on ? 'Show the timestamp & source columns'
+                     : 'Hide the timestamp & source columns for full-width logs';
+    }
+    var saved = false;
+    try { saved = localStorage.getItem(KEY) === '1'; } catch (e) {}
+    apply(saved);
+    btn.addEventListener('click', function () {
+      var on = !document.body.classList.contains('logs-focus');
+      apply(on);
+      try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (e) {}
     });
   })();
 </script>

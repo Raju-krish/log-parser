@@ -166,22 +166,25 @@ def _require_login():
     return redirect(url_for("login"))
 
 
+# Number of distinct highlight colors cycled across multi-term "message
+# contains" matches (matches the .qh0..qhN classes in the stylesheet).
+_HL_COLORS = 6
+
+
 @app.template_filter("highlight")
 def _highlight(text: str, query: str, jump: str = ""):
     """Escape line text, then wrap case-insensitive matches of the search
-    term(s) in <mark>. Multiple ``query`` terms may be separated by ``|``; the
-    ``jump`` term (Global search) gets a distinct <mark class="jmark">.
-    Escaping happens before insertion (XSS-safe)."""
+    term(s) in <mark>. Each distinct ``query`` term (split on ``|``) gets its
+    own color class (``qh0``..``qhN``, cycled) so multiple terms are visually
+    separable; the ``jump`` term (Global search) keeps its distinct
+    <mark class="jmark">. Escaping happens before insertion (XSS-safe)."""
     escaped = str(escape(text))
-    alts = []
     seen = set()
+    groups = {}            # regex group name -> CSS class for the wrapper
+    colored = []           # (css_class, escaped_term), in query order
     if jump:
-        j = str(escape(jump))
-        alts.append(("j", re.escape(j)))
-        seen.add(j.casefold())
-    # Collect the distinct "message contains" terms; longer ones first so they
-    # win over shorter overlapping terms in the alternation.
-    terms = []
+        seen.add(str(escape(jump)).casefold())
+    idx = 0
     for term in query.split("|"):
         term = term.strip()
         if not term:
@@ -191,18 +194,25 @@ def _highlight(text: str, query: str, jump: str = ""):
         if key in seen:
             continue
         seen.add(key)
-        terms.append(esc)
-    terms.sort(key=len, reverse=True)
-    for i, esc in enumerate(terms):
-        alts.append((f"q{i}", re.escape(esc)))
+        colored.append((f"qh{idx % _HL_COLORS}", esc))
+        idx += 1
+    alts = []
+    if jump:
+        alts.append(("j", re.escape(str(escape(jump)))))
+        groups["j"] = "jmark"
+    # Longer terms first so they win over shorter overlapping ones; each term's
+    # color stays tied to its position in the query, not this match order.
+    for gi, (cls, esc) in enumerate(
+            sorted(colored, key=lambda t: len(t[1]), reverse=True)):
+        gname = f"g{gi}"
+        alts.append((gname, re.escape(esc)))
+        groups[gname] = cls
     if not alts:
         return Markup(escaped)
     pattern = re.compile("|".join(f"(?P<{n}>{p})" for n, p in alts), re.IGNORECASE)
 
     def _repl(m):
-        if m.lastgroup == "j":
-            return f'<mark class="jmark">{m.group(0)}</mark>'
-        return f"<mark>{m.group(0)}</mark>"
+        return f'<mark class="{groups[m.lastgroup]}">{m.group(0)}</mark>'
 
     return Markup(pattern.sub(_repl, escaped))
 
@@ -560,7 +570,18 @@ def admin():
     if not _require_admin():
         flash("Administrator access is required for that page.", "error")
         return redirect(url_for("index"))
-    return render_template("admin.html", users=USERS.list_users())
+    users = USERS.list_users()
+    for u in users:
+        try:
+            q = WORKSPACES.quota(u["username"])
+            used = WORKSPACES.usage(u["username"])
+        except Exception:  # noqa: BLE001
+            q, used = USER_QUOTA, 0
+        u["quota_h"] = _human_size(q)
+        u["used_h"] = _human_size(used)
+        u["custom_quota"] = (q != USER_QUOTA)
+    return render_template("admin.html", users=users,
+                           default_quota_h=_human_size(USER_QUOTA))
 
 
 @app.route("/admin/add", methods=["POST"])
@@ -615,6 +636,51 @@ def admin_delete():
     return redirect(url_for("admin"))
 
 
+@app.route("/admin/quota", methods=["POST"])
+def admin_quota():
+    """Adjust a user's storage quota — add, set, or reset. Only the quota value
+    changes; the user's stored logs and data are never touched."""
+    if not _require_admin():
+        flash("Administrator access is required.", "error")
+        return redirect(url_for("index"))
+    username = request.form.get("username", "").strip()
+    if not USERS.exists(username):
+        flash("No such user.", "error")
+        return redirect(url_for("admin"))
+    action = request.form.get("action", "add").strip().lower()
+    if action == "reset":
+        new_total = WORKSPACES.set_quota(username, 0)
+        flash(f"Reset '{username}' to the default quota ({_human_size(new_total)}).", "info")
+        return redirect(url_for("admin"))
+    try:
+        amount = float(request.form.get("amount", "").strip())
+    except (TypeError, ValueError):
+        amount = 0.0
+    if amount <= 0:
+        flash("Enter a positive amount of space.", "error")
+        return redirect(url_for("admin"))
+    unit = request.form.get("unit", "mb").strip().lower()
+    factor = 1024 ** 3 if unit == "gb" else 1024 ** 2
+    amount_bytes = int(amount * factor)
+    if action == "set":
+        new_total = WORKSPACES.set_quota(username, amount_bytes)
+        flash(f"Set '{username}' quota to {_human_size(new_total)}.", "info")
+    else:  # add
+        new_total = WORKSPACES.add_quota(username, amount_bytes)
+        flash(f"Added {_human_size(amount_bytes)} for '{username}'. "
+              f"New quota: {_human_size(new_total)}.", "info")
+    # Reducing a quota never deletes data — warn only if the user is now over it.
+    try:
+        used = WORKSPACES.usage(username)
+    except Exception:  # noqa: BLE001
+        used = 0
+    if used > new_total:
+        flash(f"Note: '{username}' is using {_human_size(used)}, above the new "
+              f"{_human_size(new_total)} quota. Existing data is kept; they just "
+              f"can't save more until under quota.", "info")
+    return redirect(url_for("admin"))
+
+
 @app.route("/logout")
 def logout():
     sid = session.get("sid")
@@ -664,12 +730,13 @@ def index():
     state = _current(sid)
     sources = list(state["sources"].values()) if state else []
     sources.sort(key=lambda s: s.source_id)
-    pct = min(100, round(used * 100 / USER_QUOTA)) if USER_QUOTA else 0
+    user_quota = WORKSPACES.quota(username)
+    pct = min(100, round(used * 100 / user_quota)) if user_quota else 0
     return render_template(
         "home.html", workspaces=workspaces, shared=shared, sources=sources,
         all_users=all_users,
-        used=used, quota=USER_QUOTA, used_h=_human_size(used),
-        quota_h=_human_size(USER_QUOTA), pct=pct)
+        used=used, quota=user_quota, used_h=_human_size(used),
+        quota_h=_human_size(user_quota), pct=pct)
 
 
 @app.route("/upload", methods=["GET", "POST"])

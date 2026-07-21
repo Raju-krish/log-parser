@@ -354,10 +354,41 @@ svg.ic { width: 1em; height: 1em; vertical-align: -0.125em; }
 .logtable td.msg { color: var(--text-bright); -webkit-user-select: text; user-select: text; }
 .logtable tr:hover { background: var(--accent-faint); }
 .logtable mark { background: var(--accent); color: var(--on-accent); padding: 0 1px; border-radius: 2px; }
+/* Per-term colors for multi-term "message contains" (qh0 = default accent, the
+   rest cycle through distinct hues — none the Global-search yellow). */
+.logtable mark.qh0 { background: var(--accent); color: var(--on-accent); }
+.logtable mark.qh1 { background: #56d364; color: #0a1f10; }
+.logtable mark.qh2 { background: #ff7bb0; color: #2b0518; }
+.logtable mark.qh3 { background: #ff9051; color: #2b1402; }
+.logtable mark.qh4 { background: #4fd6df; color: #04201f; }
+.logtable mark.qh5 { background: #d2a8ff; color: #1c0a2e; }
 .logtable mark.jmark {
   display: inline-block; background: #ffd747; color: #1a1400; font-weight: 700;
   padding: 0 4px; border-radius: 4px; box-shadow: 0 1px 5px rgba(0, 0, 0, .28);
 }
+/* Focus / wide-log mode: hide the timestamp + source gutter columns so each log
+   line runs full width on a single, horizontally scrollable line. The toggle
+   class sits on <body> so it survives AJAX result swaps. */
+body.logs-focus .logtable td.ts,
+body.logs-focus .logtable td.badge { display: none; }
+body.logs-focus .logtable td.msg { white-space: pre; padding-left: 2px; }
+body.logs-focus #results .card { overflow-x: auto; }
+/* Clearance so the floating Notes / Wide-view buttons never cover the last log
+   line: the results reserve space beneath their content. */
+#results { padding-bottom: 108px; }
+.cols-toggle {
+  position: fixed; right: 20px; bottom: 72px; z-index: 50;
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--surface2); color: var(--text-bright);
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 9px 15px; cursor: pointer; font-size: 12px; line-height: 1;
+  font-family: 'Share Tech Mono', monospace;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
+  transition: border-color .12s, color .12s, background .12s;
+}
+.cols-toggle:hover { border-color: var(--accent); background: var(--surface2); color: var(--text-bright); }
+.cols-toggle.on { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.cols-toggle .ic { font-size: 15px; }
 /* The word on the current match pops and gets an accent ring. */
 .logtable tr.match-row mark.jmark {
   box-shadow: 0 0 0 2px var(--accent), 0 2px 9px var(--accent-glow);
@@ -502,6 +533,18 @@ header.app .user {
 .role-badge.role-admin { border-color: var(--accent); color: var(--accent); background: var(--accent-faint); }
 .status-ok { color: var(--accent); font-size: 12px; font-family: 'Share Tech Mono', monospace; }
 .status-pending { color: var(--sev-tag-warn); font-size: 12px; font-family: 'Share Tech Mono', monospace; }
+.quota-cell { white-space: nowrap; }
+.quota-usage { font-size: 12px; margin-bottom: 6px; }
+.quota-custom { font-size: 10px; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 0 6px; margin-left: 2px; }
+.quota-add-form { display: inline-flex; align-items: center; gap: 5px; }
+.quota-add-input { width: 66px; padding: 4px 6px; font-size: 12px; color: var(--text-bright); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+.quota-add-unit { padding: 4px 4px; font-size: 12px; color: var(--text-bright); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.quota-add-input:focus, .quota-add-unit:focus { outline: none; border-color: var(--accent); }
+.quota-add-form .btn { padding: 4px 10px; }
+.quota-controls { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.quota-reset-form { display: inline; margin: 0; }
+.quota-reset-btn { padding: 4px 10px; border-color: var(--sev-tag-warn); color: var(--sev-tag-warn); }
+.quota-reset-btn:hover { background: var(--sev-tag-warn); color: var(--on-accent); }
 
 .login-form { display: flex; flex-direction: column; gap: 18px; }
 .lf-field label {

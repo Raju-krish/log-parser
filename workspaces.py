@@ -27,6 +27,10 @@ import time
 
 _SLUG_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
+# Hard ceiling on any per-user quota override so an admin typo can't hand out an
+# absurd amount of space.
+_MAX_QUOTA_BYTES = 2 * 1024 * 1024 * 1024 * 1024  # 2 TB
+
 
 class WorkspaceError(Exception):
     """Raised for invalid names, quota violations, or missing workspaces."""
@@ -105,6 +109,69 @@ class WorkspaceStore:
         udir = self._user_dir(username)
         return self._dir_size(udir) if os.path.isdir(udir) else 0
 
+    # --- per-user quota overrides (admin-adjustable) ----------------------------
+    # Overrides live in a single JSON file at the data-root ({user: bytes}); the
+    # global default applies to anyone without an entry. Changing a quota only
+    # rewrites this file — it never reads, moves, or deletes stored workspaces.
+
+    def _quota_path(self) -> str:
+        return os.path.join(self.data_root, "quotas.json")
+
+    def _load_quotas(self) -> dict:
+        path = self._quota_path()
+        if not os.path.isfile(path):
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, json.JSONDecodeError):
+            return {}
+        q = data.get("quotas") if isinstance(data, dict) else None
+        return q if isinstance(q, dict) else {}
+
+    def _save_quotas(self, quotas: dict) -> None:
+        os.makedirs(self.data_root, exist_ok=True)
+        path = self._quota_path()
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"quotas": quotas}, fh, indent=2)
+        os.replace(tmp, path)
+
+    def quota(self, username: str) -> int:
+        """Effective quota for ``username`` — a per-user override when set,
+        otherwise the global default."""
+        with self._lock:
+            quotas = self._load_quotas()
+        try:
+            v = int(quotas.get(username))
+            if v > 0:
+                return v
+        except (TypeError, ValueError):
+            pass
+        return self.quota_bytes
+
+    def set_quota(self, username: str, total_bytes: int) -> int:
+        """Set an absolute quota for ``username`` — may be above OR below the
+        global default. A value of 0 or less clears the override, restoring the
+        default. Only rewrites quotas.json — stored workspaces and their data are
+        never read, moved, or deleted."""
+        if not username:
+            raise WorkspaceError("Invalid user identity")
+        total = min(int(total_bytes), _MAX_QUOTA_BYTES)
+        with self._lock:
+            quotas = self._load_quotas()
+            if total <= 0:
+                quotas.pop(username, None)   # reset to the global default
+            else:
+                quotas[username] = total
+            self._save_quotas(quotas)
+        return self.quota(username)
+
+    def add_quota(self, username: str, extra_bytes: int) -> int:
+        """Grant ``extra_bytes`` more space on top of the user's current quota.
+        Additive only — existing logs and data are left intact."""
+        return self.set_quota(username, self.quota(username) + int(extra_bytes))
+
     def get(self, username: str, slug: str) -> dict | None:
         wdir = self._ws_dir(username, slug)
         manifest = os.path.join(wdir, "manifest.json")
@@ -178,9 +245,10 @@ class WorkspaceStore:
                 pass
         used = self.usage(username)
         existing = self._dir_size(wdir) if os.path.isdir(wdir) else 0
-        if used - existing + incoming > self.quota_bytes:
+        quota = self.quota(username)
+        if used - existing + incoming > quota:
             raise WorkspaceError(
-                f"Saving would exceed your {human_size(self.quota_bytes)} quota "
+                f"Saving would exceed your {human_size(quota)} quota "
                 f"(in use {human_size(used - existing)}, this workspace "
                 f"{human_size(incoming)}). Delete a workspace and try again.")
 

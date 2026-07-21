@@ -31,7 +31,7 @@
   </div>
   <table class="ws-table" style="margin-top:8px;">
     <thead>
-      <tr><th>Username</th><th>Role</th><th>Status</th><th class="ws-actions-head">Actions</th></tr>
+      <tr><th>Username</th><th>Role</th><th>Status</th><th>Storage</th><th class="ws-actions-head">Actions</th></tr>
     </thead>
     <tbody>
       {% for u in users %}
@@ -42,6 +42,29 @@
           </td>
           <td class="ws-meta">
             {% if u.needs_password %}<span class="status-pending">awaiting password</span>{% else %}<span class="status-ok">active</span>{% endif %}
+          </td>
+          <td class="ws-meta quota-cell">
+            <div class="quota-usage">{{ u.used_h }} / <strong>{{ u.quota_h }}</strong>{% if u.custom_quota %} <span class="quota-custom" title="Custom quota (default {{ default_quota_h }})">custom</span>{% endif %}</div>
+            <div class="quota-controls">
+              <form method="POST" action="{{ url_for('admin_quota') }}" class="quota-add-form">
+                <input type="hidden" name="username" value="{{ u.username }}">
+                <input type="number" name="amount" min="1" max="2097152" step="1" placeholder="amount" class="quota-add-input" required aria-label="Amount for {{ u.username }}">
+                <select name="unit" class="quota-add-unit" aria-label="Unit">
+                  <option value="mb" selected>MB</option>
+                  <option value="gb">GB</option>
+                </select>
+                <button type="submit" name="action" value="add" class="btn secondary" title="Add this much to the current quota">+ Add</button>
+                <button type="submit" name="action" value="set" class="btn secondary" title="Set the total quota to this amount (can be lower)">Set</button>
+              </form>
+              {% if u.custom_quota %}
+              <form method="POST" action="{{ url_for('admin_quota') }}" class="quota-reset-form"
+                    onsubmit="return confirm('Reset {{ u.username }} to the default quota ({{ default_quota_h }})?');">
+                <input type="hidden" name="username" value="{{ u.username }}">
+                <input type="hidden" name="action" value="reset">
+                <button type="submit" class="btn secondary quota-reset-btn" title="Back to the default quota">Reset</button>
+              </form>
+              {% endif %}
+            </div>
           </td>
           <td class="ws-actions">
             <form method="POST" action="{{ url_for('admin_reset') }}"
