@@ -54,18 +54,26 @@
       </div>
       <div class="field field-grow">
         <div class="q-field-head">
-          <label for="q">Message contains <span class="hint">(| separates terms)</span></label>
+          <label for="q">Message contains <span class="hint">(&amp;&amp;, ||, parentheses)</span></label>
           <span class="q-mode-toggle" role="group" aria-label="Match mode for multiple terms">
             <button type="button" class="qm-btn" data-qmode="any" title="Keep lines containing ANY term">ANY</button>
             <button type="button" class="qm-btn" data-qmode="all" title="Keep lines containing ALL terms">ALL</button>
           </span>
         </div>
-        <input type="text" id="q" name="q" value="{{ q_raw }}" placeholder="e.g. brlan0 down | wifi error" />
+        <div class="q-slot">
+          <div class="grow-wrap" id="q-grow">
+            <textarea id="q" name="q" rows="1" spellcheck="false" autocomplete="off" placeholder='e.g. ("client_mac" &amp;&amp; assoc) || disassoc'>{{ q_raw }}</textarea>
+          </div>
+        </div>
         <input type="hidden" name="qmode" id="qmode" value="{{ qmode }}">
       </div>
       <div class="field field-grow">
         <label for="jump">Global search <span class="hint">(and jump to the match)</span></label>
-        <input type="text" id="jump" name="jump" value="{{ jump_raw }}" placeholder="paste or type part of a log line" />
+        <div class="q-slot">
+          <div class="grow-wrap" id="jump-grow">
+            <textarea id="jump" name="jump" rows="1" spellcheck="false" autocomplete="off" placeholder="paste or type part of a log line">{{ jump_raw }}</textarea>
+          </div>
+        </div>
       </div>
       {% if paginate_enabled %}
       <div class="field field-sm">
@@ -1406,12 +1414,16 @@
         if (tag !== 'input' && tag !== 'textarea') document.getElementById('fb-clear').click();
       }
     });
-    // Enter inside the jump box steps to the next match once it is applied.
+    // Enter in the jump box: step through matches once it is applied, otherwise
+    // apply it (blur → change → reload). preventDefault always — it is now a
+    // textarea, so Enter would otherwise insert a newline.
     var jinput = cForm.querySelector('[name="jump"]');
     if (jinput) jinput.addEventListener('keydown', function (e) {
       if (e.key !== 'Enter') return;
+      e.preventDefault();
       var st = state();
-      if (st && st.q === jumpVal() && st.total > 1) { e.preventDefault(); go(e.shiftKey ? -1 : 1); }
+      if (st && st.q === jumpVal() && st.total > 1) { go(e.shiftKey ? -1 : 1); }
+      else { jinput.blur(); }
     });
 
     var results = document.getElementById('results');
@@ -1507,6 +1519,37 @@
       apply(on);
       try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (e) {}
     });
+  })();
+</script>
+
+<script>
+  // "Message contains" box that expands on focus. Uses the grid + replicated-
+  // content auto-grow technique (Stephen Shaw / CSS-Tricks) so the height tracks
+  // the wrapped text with no scrollHeight measuring or jank; CSS overlays it
+  // downward (no row reflow) and collapses it to one line on blur.
+  (function () {
+    function autogrow(el, wrap) {
+      if (!el || !wrap) return;
+      function sync() {
+        // Keep the value one logical line — fold any pasted newlines into spaces.
+        if (el.value.indexOf('\n') !== -1) el.value = el.value.replace(/\r?\n/g, ' ');
+        wrap.dataset.replicatedValue = el.value;   // drives the auto-grow height
+      }
+      el.addEventListener('input', sync);
+      el.addEventListener('focus', sync);   // refresh after an AJAX value sync
+      sync();
+    }
+    var q = document.getElementById('q');
+    if (q) {
+      autogrow(q, document.getElementById('q-grow'));
+      q.addEventListener('keydown', function (e) {
+        // Enter applies the filter (blur → change → reload) instead of a newline.
+        if (e.key === 'Enter') { e.preventDefault(); q.blur(); }
+      });
+    }
+    // Global search grows the same way; its Enter (apply / step through matches)
+    // is handled by the find-bar's jump keydown listener.
+    autogrow(document.getElementById('jump'), document.getElementById('jump-grow'));
   })();
 </script>
 

@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
 from timestamps import ParserConfig, parse_timestamp
+import querylang
 
 # Fixed high-contrast palette; cycled if there are more sources than colors.
 PALETTE = [
@@ -288,26 +289,42 @@ def filter_by_text(records: list[LogRecord], query: str,
                    mode: str = "any") -> list[LogRecord]:
     """Case-insensitive substring filter on the line text.
 
-    Multiple terms may be separated by ``|``. With ``mode="any"`` (default) a
-    line is kept when it contains AT LEAST ONE term; with ``mode="all"`` it must
-    contain EVERY term. Empty query returns records unchanged. Matches
-    line-by-line (grep-like).
+    Supports Wireshark-style boolean expressions with ``&&`` (and), ``||`` (or),
+    and parentheses over quoted/bare terms, e.g.
+    ``("mac" && assoc) || ("mac" && disassoc)``. When the query uses none of
+    those, it falls back to the legacy behavior: ``|``-separated terms matched
+    with ``mode`` ("any" = OR, "all" = AND). Empty query returns records
+    unchanged.
     """
-    terms = [t for t in (p.strip().casefold() for p in query.split("|")) if t]
+    q = (query or "").strip()
+    if not q:
+        return records
+    if querylang.is_expression(q):
+        ast = querylang.parse(q)
+        if ast is not None:
+            out = []
+            for rec in records:
+                if querylang.matches(ast, rec.text.casefold()):
+                    out.append(rec)
+            return out
+        # Malformed expression: fall back to a plain literal match so a typo
+        # narrows (rather than silently returning everything).
+        needle = q.casefold()
+        return [rec for rec in records if needle in rec.text.casefold()]
+    terms = [t for t in (p.strip().casefold() for p in q.split("|")) if t]
     if not terms:
         return records
+    out = []
     if mode == "all":
-        out = []
         for rec in records:
             hay = rec.text.casefold()
             if all(t in hay for t in terms):
                 out.append(rec)
-        return out
-    out = []
-    for rec in records:
-        hay = rec.text.casefold()
-        if any(t in hay for t in terms):
-            out.append(rec)
+    else:
+        for rec in records:
+            hay = rec.text.casefold()
+            if any(t in hay for t in terms):
+                out.append(rec)
     return out
 
 

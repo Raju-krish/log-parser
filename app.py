@@ -28,6 +28,7 @@ from markupsafe import Markup, escape
 from werkzeug.utils import secure_filename
 
 import ingest
+import querylang
 from auth import LoginThrottle, UserStore, UserStoreError
 from logmodel import (
     LEVEL_ORDER, LogSource, Page, classify_is_log, color_for, file_category,
@@ -185,10 +186,7 @@ def _highlight(text: str, query: str, jump: str = ""):
     if jump:
         seen.add(str(escape(jump)).casefold())
     idx = 0
-    for term in query.split("|"):
-        term = term.strip()
-        if not term:
-            continue
+    for term in querylang.terms(query):
         esc = str(escape(term))
         key = esc.casefold()
         if key in seen:

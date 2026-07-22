@@ -278,6 +278,38 @@ svg.ic { width: 1em; height: 1em; vertical-align: -0.125em; }
 .ctl-filters .field-grow { flex: 1; }
 .ctl-filters .field-grow input { width: 100%; }
 .ctl-filters .field-sm input { width: 100px; }
+/* "Message contains" box: one line normally, expands on focus using the grid +
+   replicated-content auto-grow trick (Stephen Shaw / CSS-Tricks). The slot keeps
+   a fixed one-line footprint and the box overlays downward, so the controls row
+   never reflows; it collapses again on blur. */
+.q-slot { position: relative; height: 36px; min-width: 220px; }
+.grow-wrap { position: absolute; top: 0; left: 0; right: 0; display: grid; }
+.grow-wrap > textarea,
+.grow-wrap::after {
+  grid-area: 1 / 1 / 2 / 2;
+  width: 100%; box-sizing: border-box;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 4px;
+  font-family: 'Share Tech Mono', monospace; font-size: 13px; line-height: 1.4;
+}
+.grow-wrap::after {
+  content: attr(data-replicated-value) " ";
+  visibility: hidden; display: none;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  border-color: transparent; max-height: 320px;
+}
+.grow-wrap > textarea {
+  background: var(--bg); color: var(--text-bright);
+  resize: none; overflow: hidden; white-space: nowrap; height: 36px;
+  transition: border-color .15s, background .15s;
+}
+.grow-wrap > textarea::placeholder { color: var(--text); opacity: .35; }
+.q-slot:focus-within .grow-wrap { z-index: 30; box-shadow: 0 12px 30px rgba(0, 0, 0, .45); }
+.q-slot:focus-within .grow-wrap::after { display: block; }
+.q-slot:focus-within .grow-wrap > textarea {
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  height: auto; max-height: 320px; overflow: auto;
+  border-color: var(--accent); background: var(--surface); outline: none;
+}
 .q-field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .q-mode-toggle { display: inline-flex; flex: none; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; background: var(--bg); }
 .qm-btn {
