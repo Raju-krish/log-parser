@@ -100,7 +100,7 @@
         <div class="ss-list" id="ss-list">
           {% for s in all_sources %}
             <label class="ss-item" data-name="{{ s.name|lower }}">
-              <input type="checkbox" name="src" value="{{ s.source_id }}" {{ 'checked' if s.source_id in selected_ids }}>
+              <input type="checkbox" name="src" value="{{ s.source_id }}" data-stem="{{ stem_map[s.source_id] }}" {{ 'checked' if s.source_id in selected_ids }}>
               <span class="swatch" style="background: {{ s.color }};"></span>
               <span class="ss-name">{{ s.name }}</span>
               <span class="count">{{ s.line_count }}</span>
@@ -148,6 +148,11 @@
         var el = form.querySelector('[name="' + name + '"]');
         if (el) p.append(name, el.value);
       });
+      // A live Global-search term resolves from the page the reader is on, so a
+      // fresh search or any filter tweak never teleports to match #1 on page 1.
+      // The find-bar overrides this with an explicit jumpn while stepping.
+      var jfld = form.querySelector('[name="jump"]');
+      if (jfld && jfld.value.trim()) p.append('jnear', String(curPage()));
       // In Separate view keep the active file tab, which lives in the URL (not
       // a form field). Without it a search / filter snaps back to the first
       // source, so a match in the file you're actually viewing is never found.
@@ -179,6 +184,16 @@
       var r = document.getElementById('results');
       if (r) r.style.opacity = on ? '0.45' : '';
     }
+    // The page currently rendered in #results, read from the pager's "go to"
+    // box (its value attribute is the server-rendered page number), falling
+    // back to the URL's ?page, else 1. Lets a fresh Global search resolve from
+    // where the reader is instead of snapping back to match #1 on page 1.
+    function curPage() {
+      var pi = document.querySelector('#results .pager-goto input');
+      var p = pi ? parseInt(pi.getAttribute('value'), 10) : 0;
+      if (!p || p < 1) p = parseInt(new URLSearchParams(location.search).get('page') || '1', 10) || 1;
+      return p;
+    }
     // Capture the current source selection as the legend working set so a
     // manual pick shows up as toggleable chips above the logs.
     function setLgsetToChecked() {
@@ -191,6 +206,80 @@
       // past the server's request-line limit and silently 400 the fetch
       // (leaving the logs / pager stale), so cap it to an empty marker.
       f.value = ids.length <= 40 ? ids.join(',') : '';
+    }
+
+    // Isolate the merged timeline to a single file GROUP — every source that
+    // shares the clicked file's normalized stem (all wifihal rotations /
+    // per-timestamp splits), not just the one clicked file — or, if that group
+    // is already the whole selection, restore ALL sources. Either way the
+    // clicked/first line stays centred via the locate anchor, so you never lose
+    // your place. Triggered by a filename badge or the banner's "Show all".
+    function isolateSource(srcid, stem, seq) {
+      if (srcid == null || srcid === '') return;
+      srcid = String(srcid);
+      var boxes = form.querySelectorAll('input[name="src"]');
+      if (!boxes.length) return;
+      // Group by stem when we have one; otherwise fall back to the lone file.
+      var group = [];
+      boxes.forEach(function (b) {
+        var st = b.getAttribute('data-stem') || '';
+        if (stem ? (st === stem) : (b.value === srcid)) group.push(b);
+      });
+      if (!group.length) return;
+      var inGroup = {};
+      group.forEach(function (b) { inGroup[b.value] = 1; });
+      var checked = [];
+      boxes.forEach(function (b) { if (b.checked) checked.push(b.value); });
+      // Already showing exactly this group? Then clicking restores all sources.
+      var groupOnly = checked.length === group.length &&
+                      checked.every(function (v) { return inGroup[v]; });
+      boxes.forEach(function (b) { b.checked = groupOnly ? true : !!inGroup[b.value]; });
+      clearPreset();
+      setLgsetToChecked();
+      updateSummary();
+      // The merged view honours a global-search jump before the locate anchor,
+      // so drop any active jump to guarantee we land on the clicked line.
+      var jf = form.querySelector('[name="jump"]');
+      if (jf) jf.value = '';
+      var url = formURL();
+      url += (url.indexOf('?') === -1 ? '?' : '&')
+           + 'locsrcid=' + encodeURIComponent(srcid)
+           + '&locseq=' + encodeURIComponent(seq);
+      loadView(url);   // default scroll → centres #jump-target (the anchor line)
+    }
+
+    // With a "Message contains" filter active, clicking a filename EXPANDS that
+    // line to the full picture: show every source, drop the line filter, move
+    // the specific term that matched THIS line (the first highlighted term in
+    // the row — e.g. "deauth" out of `asso || deauth || reassoc`) into Global
+    // search, and centre the clicked line. The previous filter is stashed so
+    // Ctrl+G can bring it back.
+    function expandFromFilter(badgeEl) {
+      var srcid = badgeEl.getAttribute('data-srcid');
+      var seq = badgeEl.getAttribute('data-seq');
+      var row = badgeEl.closest('tr');
+      var qEl = form.querySelector('[name="q"]');
+      var prevFilter = qEl ? qEl.value.trim() : '';
+      // Matched term = the first "message contains" highlight in the clicked
+      // row; fall back to the whole filter text if the row isn't highlighted.
+      var term = '';
+      if (row) { var mk = row.querySelector('.msg mark'); if (mk) term = (mk.textContent || '').trim(); }
+      if (!term) term = prevFilter;
+      try { if (prevFilter) sessionStorage.setItem('lp_last_msg_filter', prevFilter); } catch (e) {}
+      // Show every source.
+      form.querySelectorAll('input[name="src"]').forEach(function (b) { b.checked = true; });
+      clearPreset();
+      setLgsetToChecked();
+      updateSummary();
+      // Drop the line filter; put the matched term into Global search.
+      if (qEl) qEl.value = '';
+      var jf = form.querySelector('[name="jump"]');
+      if (jf) jf.value = term;
+      var url = formURL();
+      url += (url.indexOf('?') === -1 ? '?' : '&')
+           + 'locsrcid=' + encodeURIComponent(srcid)
+           + '&locseq=' + encodeURIComponent(seq);
+      loadView(url);   // server centres the clicked line among the jump matches
     }
 
     // Reload ONLY the results section (legend + logs + pagers) via fetch,
@@ -339,6 +428,24 @@
         loadView(formURL());
         return;
       }
+      // Click a source badge (or the isolate banner button). With a "Message
+      // contains" filter active, a badge click EXPANDS the clicked line to the
+      // full context (all sources; the term that matched this line moves into
+      // Global search); with no filter it isolates to that file group. The
+      // banner's own "Show all" button always restores every source.
+      var sbadge = ev.target.closest && ev.target.closest('.src-badge, .iso-all');
+      if (sbadge) {
+        ev.preventDefault();
+        var qEl = form.querySelector('[name="q"]');
+        if (qEl && qEl.value.trim() && !sbadge.classList.contains('iso-all')) {
+          expandFromFilter(sbadge);
+        } else {
+          isolateSource(sbadge.getAttribute('data-srcid'),
+                        sbadge.getAttribute('data-stem') || '',
+                        sbadge.getAttribute('data-seq'));
+        }
+        return;
+      }
       var clr = ev.target.closest && ev.target.closest('#jump-clear');
       if (clr) {
         ev.preventDefault();
@@ -482,6 +589,7 @@
     if (initTgt) initTgt.scrollIntoView({ block: 'center' });
     window.__lpLoadView = loadView;   // let the notes panel reuse in-page navigation
     window.__lpFormURL = formURL;     // and the current filter/selection URL
+    window.__lpCurPage = curPage;     // and the page the reader is currently on
   })();
 </script>
 
@@ -556,6 +664,16 @@
   <button type="button" class="fb-btn" id="fb-prev" title="Previous match (Shift+Enter or Shift+F3)" aria-label="Previous match">◀</button>
   <button type="button" class="fb-btn" id="fb-next" title="Next match (Enter or F3)" aria-label="Next match">▶</button>
   <button type="button" class="fb-btn fb-x" id="fb-clear" title="Clear (Esc)" aria-label="Clear jump">✕</button>
+</div>
+
+{# ---- Floating "Message contains" filter box (Ctrl+G) ---- #}
+<div class="find-bar filter-bar" id="filter-bar" hidden>
+  <span class="fb-icon"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4-2v-6z"/></svg></span>
+  <input type="text" class="fb-q" id="flt-q" placeholder="message contains…  (&amp;&amp;, ||, parentheses)" aria-label="Message contains filter — Enter to apply" autocomplete="off" spellcheck="false" />
+  <button type="button" class="fb-btn fb-text" id="flt-apply" title="Apply filter (Enter)">Apply</button>
+  <button type="button" class="fb-btn fb-x" id="flt-clear" title="Close (Esc)" aria-label="Close">
+    <svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+  </button>
 </div>
 
 {# ---- Floating notes navigator (step through bookmarks) ---- #}
@@ -1315,7 +1433,8 @@
         // New term: start from the page the reader is on — the server resolves
         // the first match at/after it and reports its true global index —
         // instead of teleporting to match #1 on page 1.
-        var cur = parseInt(new URLSearchParams(location.search).get('page') || '1', 10) || 1;
+        var cur = window.__lpCurPage ? window.__lpCurPage()
+                  : (parseInt(new URLSearchParams(location.search).get('page') || '1', 10) || 1);
         jp.p.set('jnear', String(cur)); jp.p.delete('jumpn');
       } else {
         var n = st.n + delta; if (n < 1) n = st.total || 1; if (n > st.total) n = 1;
@@ -1441,6 +1560,58 @@
     var results = document.getElementById('results');
     if (results && window.MutationObserver) new MutationObserver(refresh).observe(results, { childList: true });
     refresh();
+  })();
+</script>
+
+<script>
+  // ---- Ctrl+G: floating "Message contains" filter box --------------------
+  // Reopen / edit the line filter without scrolling up to the controls. Mainly
+  // used to get back to a filtered view after a filename-badge "expand to
+  // context" (which moved the filter term into Global search).
+  (function () {
+    var bar = document.getElementById('filter-bar');
+    var cForm = document.getElementById('controls-form');
+    if (!bar || !cForm) return;
+    var fltQ = document.getElementById('flt-q');
+    var applyBtn = document.getElementById('flt-apply');
+    var clearBtn = document.getElementById('flt-clear');
+
+    function qField() { return cForm.querySelector('[name="q"]'); }
+    function jField() { return cForm.querySelector('[name="jump"]'); }
+
+    function openBar() {
+      var fb = document.getElementById('find-bar'); if (fb) fb.hidden = true;   // one bar at a time
+      var nn = document.getElementById('notes-nav'); if (nn) nn.hidden = true;
+      var cur = (qField() && qField().value.trim()) || '';
+      var last = '';
+      try { last = sessionStorage.getItem('lp_last_msg_filter') || ''; } catch (e) {}
+      fltQ.value = cur || last;
+      bar.hidden = false;
+      fltQ.focus(); fltQ.select();
+    }
+    function closeBar() { bar.hidden = true; }
+    function applyFilter() {
+      var v = fltQ.value.trim();
+      var q = qField(); if (q) q.value = v;
+      var j = jField(); if (j) j.value = '';    // returning to filtering — drop Global search
+      try { sessionStorage.setItem('lp_last_msg_filter', v); } catch (e) {}
+      closeBar();
+      if (window.__lpLoadView && window.__lpFormURL) window.__lpLoadView(window.__lpFormURL());
+    }
+
+    applyBtn.addEventListener('click', applyFilter);
+    clearBtn.addEventListener('click', closeBar);
+    fltQ.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); applyFilter(); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeBar(); }
+    });
+    // Ctrl/Cmd+G opens THIS box (prefilled with the current / last filter).
+    document.addEventListener('keydown', function (e) {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'g' || e.key === 'G')) {
+        e.preventDefault();
+        if (bar.hidden) openBar(); else { fltQ.focus(); fltQ.select(); }
+      }
+    });
   })();
 </script>
 

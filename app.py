@@ -1065,6 +1065,18 @@ def view():
 
     color_map = {s.source_id: s.color for s in all_sources}
     name_map = {s.source_id: s.name for s in all_sources}
+    stem_map = {s.source_id: _log_stem(s.name) for s in all_sources}
+    # "Isolated to one file group": the current selection is exactly every
+    # source sharing a single normalized stem (e.g. all wifihal rotations /
+    # per-timestamp splits). Drives the badge highlight + "Showing only …"
+    # banner, so clicking a filename focuses the whole group, not one file.
+    iso_stem = ""
+    if selected_ids and not show_others:
+        _sel_stems = {stem_map[i] for i in selected_ids if i in stem_map}
+        if len(_sel_stems) == 1:
+            _one = next(iter(_sel_stems))
+            if {sid for sid, st in stem_map.items() if st == _one} == set(selected_ids):
+                iso_stem = _one
 
     def _base(name):
         return name.split("/")[-1] if name else name
@@ -1134,17 +1146,45 @@ def view():
                     idx - (target_page - 1) * page_size)
         return paginate(records, 1, None), idx
 
+    def _locate_idx(records):
+        """Index within ``records`` of the 'go to line' / anchor target — the
+        exact source_id when available (unique), else basename + line text for
+        legacy bookmarks — or None when it isn't present."""
+        if loc_seq is None:
+            return None
+        if loc_srcid is not None:
+            for i, r in enumerate(records):
+                if r.source_id == loc_srcid and r.seq == loc_seq:
+                    return i
+            return None
+        if loc_src:
+            cands = [i for i, r in enumerate(records)
+                     if r.seq == loc_seq
+                     and _base(name_map.get(r.source_id, "")) == loc_src]
+            if loc_text and len(cands) > 1:
+                needle = loc_text[:80]
+                exact = [i for i in cands if records[i].text.strip().startswith(needle)]
+                cands = exact or cands
+            return cands[0] if cands else None
+        return None
+
     def _context_window(records):
-        """Return (page, match_offset) for the jump_n-th line matching jump_raw
+        """Return (page, match_offset) for the resolved line matching jump_raw
         in its natural page, or (None, None) if none. Records the total match
-        count and resolved index for the navigator."""
+        count and resolved index for the navigator. When an anchor line
+        (``locseq``) is supplied and is itself a match, that line is selected —
+        so "expand this filtered line to full context" centres on the clicked
+        line while its filter term becomes the Global search."""
         needle = jump_raw.casefold()
         matches = [i for i, r in enumerate(records) if needle in r.text.casefold()]
         jump_info["total"] = len(matches)
         if not matches:
             return None, None
+        anchor = _locate_idx(records)
         if jump_n is not None:
             n = jump_n                                  # explicit navigation
+        elif anchor is not None and anchor in matches:
+            n = matches.index(anchor) + 1               # centre on the clicked line
         elif jump_near and page_size:
             near_idx = (jump_near - 1) * page_size      # first record on the user's page
             n = next((k + 1 for k, mi in enumerate(matches) if mi >= near_idx), 1)
@@ -1161,23 +1201,7 @@ def view():
     def _locate_window(records):
         """Find a bookmarked line for 'go to line'. Prefers the exact source_id
         (unique); falls back to basename + line text for legacy bookmarks."""
-        if loc_seq is None:
-            return None, None
-        idx = None
-        if loc_srcid is not None:
-            for i, r in enumerate(records):
-                if r.source_id == loc_srcid and r.seq == loc_seq:
-                    idx = i
-                    break
-        elif loc_src:
-            cands = [i for i, r in enumerate(records)
-                     if r.seq == loc_seq
-                     and _base(name_map.get(r.source_id, "")) == loc_src]
-            if loc_text and len(cands) > 1:
-                needle = loc_text[:80]
-                exact = [i for i in cands if records[i].text.strip().startswith(needle)]
-                cands = exact or cands
-            idx = cands[0] if cands else None
+        idx = _locate_idx(records)
         if idx is None:
             return None, None
         return _page_at(records, idx)
@@ -1299,6 +1323,7 @@ def view():
                 "text": r.text,
                 "level": r.level,
                 "src": _base(name_map.get(r.source_id, "?")),
+                "stem": stem_map.get(r.source_id, ""),
                 "srcid": r.source_id,
                 "seq": r.seq,
                 "epoch": (r.epoch if r.epoch is not None else ""),
@@ -1361,6 +1386,8 @@ def view():
         legend_ids_str=legend_ids_str,
         legend_candidates=legend_candidates,
         all_selected=(len(selected_ids) == len(all_sources)),
+        iso_stem=iso_stem,
+        stem_map=stem_map,
         show_others=show_others,
         other_count=other_count,
         log_count=log_count,

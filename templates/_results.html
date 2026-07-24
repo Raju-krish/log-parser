@@ -102,6 +102,15 @@
 
 {# ---- Merged view ---- #}
 {% if mode != 'separate' %}
+  {% if rendered and all_sources|length > 1 and iso_stem %}
+    <div class="iso-banner">
+      <span class="iso-ico">⧉</span>
+      <span>Showing only <strong>{{ iso_stem }}</strong>{% if selected_ids|length > 1 %} <span class="hint">({{ selected_ids|length }} files)</span>{% endif %}
+        <span class="hint">— click any filename to focus its file group; click it again to show all</span></span>
+      <button type="button" class="btn secondary iso-all"
+              data-srcid="{{ rendered[0].srcid }}" data-stem="{{ rendered[0].stem }}" data-seq="{{ rendered[0].seq }}">Show all sources</button>
+    </div>
+  {% endif %}
   <div class="card">
     {% if rendered %}
       {{ pager(merged_page) }}
@@ -118,7 +127,7 @@
                         aria-label="Bookmark line">{{ '★' if row.pinned else '☆' }}</button>
                 <span class="ts-val" title="Click to copy timestamp">{{ row.ts }}</span>
               </td>
-              <td class="badge"><span style="background: {{ row.color }};" title="{{ row.name }}">{{ row.name | short_source }}</span></td>
+              <td class="badge"><button type="button" class="src-badge{{ ' iso' if iso_stem and row.stem == iso_stem }}" style="background: {{ row.color }};" data-srcid="{{ row.srcid }}" data-stem="{{ row.stem }}" data-seq="{{ row.seq }}" title="{{ row.name }} — {{ 'showing this file group · click to show all sources' if iso_stem and row.stem == iso_stem else 'show only this file group (stay on this line)' }}">{{ row.name | short_source }}</button></td>
               <td class="msg">{{ row.text | highlight(q_raw, jump_raw) }}</td>
             </tr>
           {% endfor %}
