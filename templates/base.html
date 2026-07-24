@@ -4,14 +4,29 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <script>
-    // Apply the colour palette before paint to avoid a flash of default.
-    // Default theme (when the user hasn't picked one) is One Dark.
+    // A logged-in user's server-saved appearance follows their account across
+    // browsers / private windows; lpSavePref persists a change back.
+    window.__lpPrefs = { theme: {{ (ui_theme or '') | tojson }}, font: {{ (ui_font or '') | tojson }} };
+    window.lpSavePref = function (key, value) {
+      try {
+        fetch('{{ url_for("prefs_ui") }}', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' },
+          body: 'key=' + encodeURIComponent(key) + '&value=' + encodeURIComponent(value)
+        });
+      } catch (e) {}
+    };
+  </script>
+  <script>
+    // Apply the colour palette + font before paint to avoid a flash of default.
+    // The account preference (window.__lpPrefs) wins over this browser's storage.
     (function () {
       try {
-        var savedFont = localStorage.getItem('lp-font');
-        if (savedFont !== 'default') document.documentElement.setAttribute('data-font', savedFont);
+        var P = window.__lpPrefs || {};
+        var savedFont = P.font || localStorage.getItem('lp-font');
+        if (savedFont && savedFont !== 'default') document.documentElement.setAttribute('data-font', savedFont);
         var DEFAULT = 'onedark';
-        var t = localStorage.getItem('lp-theme') || DEFAULT;
+        var t = P.theme || localStorage.getItem('lp-theme') || DEFAULT;
         if (t === 'matrix') return;   // matrix is the CSS :root base (no attr)
         document.documentElement.setAttribute('data-theme', t);
         var LIGHT = ['daylight','solarl','github','gruvl','latte','rosedawn','nordl','parchment','ayu','meadow'];
@@ -34,25 +49,38 @@
     <div class="spacer"></div>
     <a class="btn secondary" href="{{ url_for('index') }}">Home</a>
     <a class="btn secondary" href="{{ url_for('upload') }}">Upload</a>
+    <div class="filt-menu" id="filt-menu">
+      <button type="button" class="filt-trigger" id="filt-trigger" aria-haspopup="true" aria-expanded="false" title="Your saved message filters">
+        <svg class="filt-ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>
+        <span class="filt-label-txt">Filters</span>
+        <span class="tt-caret">&#9662;</span>
+      </button>
+      <div class="filt-pop" id="filt-pop" hidden>
+        <div class="filt-head">
+          <span class="filt-title">Saved filters</span>
+          <span class="filt-sub">Copy an expression, then paste it into “Message contains”.</span>
+        </div>
+        {% for f in pref_filters %}
+        <div class="filt-row">
+          <div class="filt-info">
+            <span class="filt-label">{{ f.label }}</span>
+            <code class="filt-expr" title="{{ f.expr }}">{{ f.expr }}</code>
+          </div>
+          <button type="button" class="filt-copy" data-expr="{{ f.expr }}" title="Copy to clipboard" aria-label="Copy the “{{ f.label }}” filter">Copy</button>
+        </div>
+        {% else %}
+        <p class="filt-empty">No saved filters yet.</p>
+        {% endfor %}
+        <a class="filt-manage" href="{{ url_for('preferences_page', _anchor='message-filters') }}">Manage filters &rarr;</a>
+      </div>
+    </div>
     <a class="btn secondary" href="{{ url_for('reset') }}">Reset</a>
     <a class="btn secondary" href="{{ url_for('about') }}">About</a>
     {% if is_admin %}<a class="btn secondary" href="{{ url_for('admin') }}">Admin</a>{% endif %}
-    <div class="theme-menu" id="theme-menu">
-      <button type="button" class="theme-trigger" id="theme-trigger" aria-haspopup="true" aria-expanded="false" title="Colour palette">
-        <span class="tt-swatch"></span>
-        <span class="tt-name" id="tt-name">One Dark</span>
-        <span class="tt-caret">▾</span>
-      </button>
-      <div class="theme-pop" id="theme-pop" hidden></div>
-    </div>
-    <div class="font-menu" id="font-menu">
-      <button type="button" class="font-trigger" id="font-trigger" aria-haspopup="true" aria-expanded="false" title="Font">
-        <span class="ft-glyph">Aa</span>
-        <span class="ft-name" id="ft-name">JetBrains Mono</span>
-        <span class="ft-caret">▾</span>
-      </button>
-      <div class="font-pop" id="font-pop" hidden></div>
-    </div>
+    <a class="btn secondary pref-link" href="{{ url_for('preferences_page') }}" title="Preferences">
+      <svg class="pref-gear" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Preferences
+    </a>
     <span class="user mono">{{ current_user }}</span>
     <a class="btn secondary" href="{{ url_for('logout') }}">Logout</a>
   </header>
@@ -126,11 +154,9 @@
         { id: 'ayu', name: 'Ayu', mode: 'light', bg: '#fafafa', ac: '#ff9940' },
         { id: 'meadow', name: 'Meadow', mode: 'light', bg: '#f1f7f2', ac: '#2f855a' }
       ];
-      var menu = document.getElementById('theme-menu');
-      var trigger = document.getElementById('theme-trigger');
       var pop = document.getElementById('theme-pop');
       var ttName = document.getElementById('tt-name');
-      if (!menu || !trigger || !pop) return;
+      if (!pop) return;
 
       function byId(id) {
         for (var i = 0; i < THEMES.length; i++) if (THEMES[i].id === id) return THEMES[i];
@@ -160,19 +186,17 @@
         if (ttName) ttName.textContent = t.name;
         var opts = pop.querySelectorAll('.theme-opt');
         for (var i = 0; i < opts.length; i++) opts[i].classList.toggle('active', opts[i].getAttribute('data-id') === t.id);
-        if (save) { try { localStorage.setItem('lp-theme', t.id); } catch (e) {} }
+        if (save) {
+          try { localStorage.setItem('lp-theme', t.id); } catch (e) {}
+          if (window.lpSavePref) window.lpSavePref('theme', t.id);
+        }
       }
       apply(document.documentElement.getAttribute('data-theme') || 'matrix', false);
 
-      function open() { pop.hidden = false; menu.classList.add('open'); trigger.setAttribute('aria-expanded', 'true'); }
-      function close() { pop.hidden = true; menu.classList.remove('open'); trigger.setAttribute('aria-expanded', 'false'); }
-      trigger.addEventListener('click', function (e) { e.stopPropagation(); if (pop.hidden) open(); else close(); });
       pop.addEventListener('click', function (e) {
         var b = e.target.closest('.theme-opt');
-        if (b) { apply(b.getAttribute('data-id'), true); close(); }
+        if (b) apply(b.getAttribute('data-id'), true);
       });
-      document.addEventListener('click', function (e) { if (!menu.contains(e.target)) close(); });
-      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
     })();
 
     // Modern font picker: grouped previews (each rendered in its own face),
@@ -192,11 +216,9 @@
         { id: 'roboto',      name: 'Roboto',          group: 'Sans-serif', stack: "'Roboto', system-ui, sans-serif" },
         { id: 'opensans',    name: 'Open Sans',       group: 'Sans-serif', stack: "'Open Sans', system-ui, sans-serif" }
       ];
-      var menu = document.getElementById('font-menu');
-      var trigger = document.getElementById('font-trigger');
       var pop = document.getElementById('font-pop');
       var ftName = document.getElementById('ft-name');
-      if (!menu || !trigger || !pop) return;
+      if (!pop) return;
 
       function byId(id) {
         for (var i = 0; i < FONTS.length; i++) if (FONTS[i].id === id) return FONTS[i];
@@ -205,7 +227,7 @@
       function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 
       function renderGroup(group) {
-        var html = '<div class="tp-group-label">' + group + '</div>';
+        var html = '<div class="tp-group-label">' + group + '</div><div class="fo-grid">';
         for (var i = 0; i < FONTS.length; i++) {
           var f = FONTS[i];
           if (f.group !== group) continue;
@@ -215,7 +237,7 @@
                 + '<span class="fo-meta">' + (f.def ? 'Default · ' : '') + 'Aa Bb Cc 0123' + '</span></span>'
                 + '</button>';
         }
-        return html;
+        return html + '</div>';
       }
       pop.innerHTML = renderGroup('Monospace') + renderGroup('Sans-serif');
 
@@ -226,19 +248,50 @@
         if (ftName) ftName.textContent = f.name;
         var opts = pop.querySelectorAll('.font-opt');
         for (var i = 0; i < opts.length; i++) opts[i].classList.toggle('active', opts[i].getAttribute('data-id') === f.id);
-        if (save) { try { localStorage.setItem('lp-font', f.id); } catch (e) {} }
+        if (save) {
+          try { localStorage.setItem('lp-font', f.id); } catch (e) {}
+          if (window.lpSavePref) window.lpSavePref('font', f.id);
+        }
       }
       apply(document.documentElement.getAttribute('data-font') || 'default', false);
 
+      pop.addEventListener('click', function (e) {
+        var b = e.target.closest('.font-opt');
+        if (b) apply(b.getAttribute('data-id'), true);
+      });
+    })();
+
+    // Filters menu: quick copy of the user's saved "Message contains" expressions.
+    (function () {
+      var menu = document.getElementById('filt-menu');
+      var trigger = document.getElementById('filt-trigger');
+      var pop = document.getElementById('filt-pop');
+      if (!menu || !trigger || !pop) return;
       function open() { pop.hidden = false; menu.classList.add('open'); trigger.setAttribute('aria-expanded', 'true'); }
       function close() { pop.hidden = true; menu.classList.remove('open'); trigger.setAttribute('aria-expanded', 'false'); }
       trigger.addEventListener('click', function (e) { e.stopPropagation(); if (pop.hidden) open(); else close(); });
-      pop.addEventListener('click', function (e) {
-        var b = e.target.closest('.font-opt');
-        if (b) { apply(b.getAttribute('data-id'), true); close(); }
-      });
       document.addEventListener('click', function (e) { if (!menu.contains(e.target)) close(); });
       document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+      // Copy a filter expression. navigator.clipboard needs a secure context
+      // (blocked on plain-HTTP LAN), so fall back to a hidden-textarea execCommand.
+      pop.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var btn = e.target.closest ? e.target.closest('.filt-copy') : null;
+        if (!btn) return;
+        var expr = btn.getAttribute('data-expr') || '';
+        var done = function () {
+          var old = btn.getAttribute('data-label') || btn.textContent;
+          if (!btn.getAttribute('data-label')) btn.setAttribute('data-label', old);
+          btn.textContent = 'Copied \u2713'; btn.classList.add('ok');
+          setTimeout(function () { btn.textContent = old; btn.classList.remove('ok'); }, 1400);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(expr).then(done, done);
+        } else {
+          var t = document.createElement('textarea'); t.value = expr; document.body.appendChild(t);
+          t.select(); try { document.execCommand('copy'); } catch (e2) {} document.body.removeChild(t); done();
+        }
+      });
     })();
   </script>
 </body>

@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Log Parser — Preferences{% endblock %}
+{% block content %}
+
+<section class="hero">
+  <h2>Preferences</h2>
+  <p>Personalize Log Parser. Your theme and font follow your account across
+     browsers and private windows.</p>
+</section>
+
+<div class="pref-page">
+  <div class="card pref-card">
+    <div class="pref-sec-head">
+      <span class="pref-sec-title">Theme</span>
+      <span class="pref-cur" id="tt-name">One Dark</span>
+    </div>
+    <div class="theme-pop" id="theme-pop"></div>
+  </div>
+
+  <div class="card pref-card">
+    <div class="pref-sec-head">
+      <span class="pref-sec-title">Font</span>
+      <span class="pref-cur" id="ft-name">JetBrains Mono</span>
+    </div>
+    <div class="font-pop" id="font-pop"></div>
+  </div>
+
+  <div class="card pref-card">
+    <div class="pref-sec-head"><span class="pref-sec-title">Source presets</span></div>
+    <p class="pref-hint">A preset selects log files by name in one click. Files match by name, ignoring extensions. Separate names with commas.</p>
+    <div class="preset-mgr filter-mgr-page">
+      {% for p in pref_presets %}
+      <form class="pm-row" method="POST" action="{{ url_for('preset_update') }}">
+        <input type="hidden" name="id" value="{{ p.id }}">
+        <input type="hidden" name="next" value="{{ url_for('preferences_page') }}">
+        <div class="pm-fields">
+          <input type="text" class="pm-label" name="label" value="{{ p.label }}" maxlength="60" required aria-label="Preset name">
+          <input type="text" class="pm-stems" name="stems" value="{{ p.stems | join(', ') }}" placeholder="wifihal, wifimgr, messages" required aria-label="File names">
+        </div>
+        <div class="pm-actions">
+          <button type="submit" class="btn secondary pm-save">Save</button>
+          <button type="submit" class="pm-del" formaction="{{ url_for('preset_delete') }}" formnovalidate title="Delete preset" aria-label="Delete preset">&#10005;</button>
+        </div>
+      </form>
+      {% endfor %}
+      <form class="pm-row pm-add" method="POST" action="{{ url_for('preset_add') }}">
+        <input type="hidden" name="next" value="{{ url_for('preferences_page') }}">
+        <div class="pm-fields">
+          <input type="text" class="pm-label" name="label" placeholder="New preset name" maxlength="60" required aria-label="New preset name">
+          <input type="text" class="pm-stems" name="stems" placeholder="file1, file2, messages" required aria-label="File names">
+        </div>
+        <div class="pm-actions">
+          <button type="submit" class="btn secondary pm-addbtn">+ Add preset</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card pref-card" id="message-filters">
+    <div class="pref-sec-head"><span class="pref-sec-title">Message filters</span></div>
+    <p class="pref-hint">Save “Message contains” expressions you reuse (querylang: &amp;&amp;, ||, parentheses) — then copy them fast from the <strong>Filters</strong> menu in the header.</p>
+    <div class="preset-mgr filter-mgr-page">
+      {% for f in pref_filters %}
+      <form class="pm-row" method="POST" action="{{ url_for('filter_update') }}">
+        <input type="hidden" name="id" value="{{ f.id }}">
+        <input type="hidden" name="next" value="{{ url_for('preferences_page') }}">
+        <div class="pm-fields">
+          <input type="text" class="pm-label" name="label" value="{{ f.label }}" maxlength="60" required aria-label="Filter name">
+          <input type="text" class="pm-stems" name="expr" value="{{ f.expr }}" placeholder="received auth || send auth || device associated" required aria-label="Filter expression">
+        </div>
+        <div class="pm-actions">
+          <button type="button" class="filt-copy pm-copy" data-expr="{{ f.expr }}" title="Copy to clipboard" aria-label="Copy the “{{ f.label }}” filter">Copy</button>
+          <button type="submit" class="btn secondary pm-save">Save</button>
+          <button type="submit" class="pm-del" formaction="{{ url_for('filter_delete') }}" formnovalidate title="Delete filter" aria-label="Delete filter">&#10005;</button>
+        </div>
+      </form>
+      {% endfor %}
+      <form class="pm-row pm-add" method="POST" action="{{ url_for('filter_add') }}">
+        <input type="hidden" name="next" value="{{ url_for('preferences_page') }}">
+        <div class="pm-fields">
+          <input type="text" class="pm-label" name="label" placeholder="New filter name" maxlength="60" required aria-label="New filter name">
+          <input type="text" class="pm-stems" name="expr" placeholder="received auth || send auth || device associated" required aria-label="Filter expression">
+        </div>
+        <div class="pm-actions">
+          <button type="submit" class="btn secondary pm-addbtn">+ Add filter</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Copy a saved filter expression (execCommand fallback for plain-HTTP LAN).
+  (function () {
+    document.querySelectorAll('.pm-copy').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var expr = btn.getAttribute('data-expr') || '';
+        var done = function () {
+          if (!btn.getAttribute('data-label')) btn.setAttribute('data-label', btn.textContent);
+          btn.textContent = 'Copied \u2713'; btn.classList.add('ok');
+          setTimeout(function () { btn.textContent = btn.getAttribute('data-label'); btn.classList.remove('ok'); }, 1400);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(expr).then(done, done);
+        } else {
+          var t = document.createElement('textarea'); t.value = expr; document.body.appendChild(t);
+          t.select(); try { document.execCommand('copy'); } catch (e) {} document.body.removeChild(t); done();
+        }
+      });
+    });
+  })();
+</script>
+
+{% endblock %}

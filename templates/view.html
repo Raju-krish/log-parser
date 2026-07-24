@@ -26,6 +26,7 @@
   <form method="GET" action="{{ url_for('view') }}" id="controls-form">
     <input type="hidden" name="lgset" value="{{ legend_ids_str }}">
     <input type="hidden" name="level" value="{{ level }}">
+    <input type="hidden" name="preset" id="preset-field" value="{{ active_preset }}">
 
     {# Row 1 — view mode (segmented) + apply/clear #}
     <div class="ctl-row ctl-top">
@@ -55,14 +56,10 @@
       <div class="field field-grow">
         <div class="q-field-head">
           <label for="q">Message contains <span class="hint">(&amp;&amp;, ||, parentheses)</span></label>
-          <span class="q-mode-toggle" role="group" aria-label="Match mode for multiple terms">
-            <button type="button" class="qm-btn" data-qmode="any" title="Keep lines containing ANY term">ANY</button>
-            <button type="button" class="qm-btn" data-qmode="all" title="Keep lines containing ALL terms">ALL</button>
-          </span>
         </div>
         <div class="q-slot">
           <div class="grow-wrap" id="q-grow">
-            <textarea id="q" name="q" rows="1" spellcheck="false" autocomplete="off" placeholder='e.g. ("client_mac" &amp;&amp; assoc) || disassoc'>{{ q_raw }}</textarea>
+            <textarea id="q" name="q" rows="1" spellcheck="false" autocomplete="off">{{ q_raw }}</textarea>
           </div>
         </div>
         <input type="hidden" name="qmode" id="qmode" value="{{ qmode }}">
@@ -137,6 +134,12 @@
     var form = document.getElementById('controls-form');
     if (!form) return;
 
+    // Drop the sticky preset (called when the user edits the source selection).
+    function clearPreset() {
+      var pf = form.querySelector('input[name="preset"]');
+      if (pf) pf.value = '';
+    }
+
     function formURL() {
       var p = new URLSearchParams();
       var m = form.querySelector('input[name="mode"]:checked');
@@ -151,6 +154,14 @@
       if (m && m.value === 'separate') {
         var act = new URLSearchParams(location.search).get('active');
         if (act) p.append('active', act);
+      }
+      // A sticky preset carries itself in a hidden field so time/text/level
+      // filters keep it applied. When present it drives the source selection,
+      // so send it instead of the (preset-matched) checkbox list.
+      var pf = form.querySelector('input[name="preset"]');
+      if (pf && pf.value) {
+        p.append('preset', pf.value);
+        return form.action.split('?')[0] + '?' + p.toString();
       }
       // Compact source selection so hundreds of sources never overflow the URL.
       var boxes = form.querySelectorAll('input[name="src"]');
@@ -264,7 +275,7 @@
         var ck = form.querySelector('input[name="mode"]:checked');
         if (ck) { var seg = ck.closest('.seg'); if (seg) seg.classList.add('on'); }
       }
-      ['lgset', 'start', 'end', 'q', 'qmode', 'page_size', 'jump', 'level'].forEach(function (name) {
+      ['lgset', 'start', 'end', 'q', 'qmode', 'page_size', 'jump', 'level', 'preset'].forEach(function (name) {
         var d = dForm.querySelector('[name="' + name + '"]');
         var l = form.querySelector('[name="' + name + '"]');
         if (d && l && document.activeElement !== l) l.value = d.value;
@@ -290,7 +301,7 @@
     // Auto-apply: any named control change reloads the results.
     form.addEventListener('change', function (ev) {
       if (!ev.target || !ev.target.name) return;   // ignore the unnamed search box
-      if (ev.target.name === 'src') { setLgsetToChecked(); updateSummary(); }  // instant count
+      if (ev.target.name === 'src') { clearPreset(); setLgsetToChecked(); updateSummary(); }  // manual pick drops the preset
       loadView(formURL());
     });
 
@@ -341,7 +352,7 @@
         ev.preventDefault();
         var id = chip.getAttribute('data-src');
         var box = form.querySelector('input[name="src"][value="' + id + '"]');
-        if (box) { box.checked = !box.checked; loadView(formURL()); }
+        if (box) { box.checked = !box.checked; clearPreset(); loadView(formURL()); }
         return;
       }
       var a = ev.target.closest && ev.target.closest('a');
@@ -461,6 +472,7 @@
       else if (act === 'visible') list.querySelectorAll('.ss-item').forEach(function (it) {
         if (!it.hidden) { var b = it.querySelector('input'); if (b) b.checked = true; }
       });
+      clearPreset();
       updateSummary();
       setLgsetToChecked();
       loadView(formURL());

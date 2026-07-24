@@ -41,6 +41,9 @@ from timestamps import (
 from workspaces import WorkspaceError, WorkspaceStore, slugify as ws_slugify
 from bookmarks import BookmarkStore
 from notepad import NotepadStore
+from presets import PresetStore
+from settings import SettingsStore
+from msgfilters import MessageFilterStore
 
 # --- Configuration --------------------------------------------------------------
 
@@ -65,18 +68,10 @@ USER_QUOTA = int(os.environ.get("LOG_PARSER_USER_QUOTA", str(500 * 1024 * 1024))
 WORK_ROOT = os.path.join(tempfile.gettempdir(), "log-parser")
 SESSION_MAX_AGE = 6 * 3600  # sweep working dirs older than 6h on startup
 
-# Named source presets (quick templates). Files are matched by normalized
-# basename stem — case-insensitive and ignoring extensions / rotation suffixes —
-# so `wifiHal.txt`, `wifiHAL`, and `wifiHal.txt.0` all match `wifihal`.
-PRESETS = {
-    "wifi": {
-        "label": "WiFi Analysis",
-        "files": {
-            "wifidmcli", "wifihal", "wifimgr", "wifimon",
-            "wifiwebconfig", "wifictrl", "messages",
-        },
-    },
-}
+# Source presets are per-user now (see presets.py / PresetStore). A preset names
+# a set of log-file stems; files are matched by normalized basename stem —
+# case-insensitive, ignoring extensions / rotation suffixes — so `wifiHal.txt`,
+# `wifiHAL`, and `wifiHal.txt.0` all match `wifihal`.
 
 # Display order / labels / icons for the non-log file categories (the chips
 # shown above the logs). Only categories that actually have files are shown.
@@ -108,6 +103,23 @@ def _log_stem(name: str) -> str:
 def _preset_matches(name: str, wanted_stems: set) -> bool:
     return _log_stem(name) in wanted_stems
 
+
+def _user_presets(username: str) -> dict:
+    """The user's presets as an ordered {id: {'label','files','stems'}} dict,
+    with file stems normalized (via _log_stem) for matching against sources."""
+    out: dict = {}
+    try:
+        rows = PRESETS_STORE.list(username)
+    except Exception:  # noqa: BLE001
+        rows = []
+    for p in rows:
+        out[p["id"]] = {
+            "label": p["label"],
+            "files": {_log_stem(s) for s in p.get("stems", [])},
+            "stems": p.get("stems", []),
+        }
+    return out
+
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 app.secret_key = os.environ.get("LOG_PARSER_SECRET", os.urandom(24).hex())
@@ -125,6 +137,9 @@ THROTTLE = LoginThrottle()
 WORKSPACES = WorkspaceStore(DATA_ROOT, USER_QUOTA)
 BOOKMARKS = BookmarkStore(DATA_ROOT)
 NOTEPAD = NotepadStore(DATA_ROOT)
+PRESETS_STORE = PresetStore(DATA_ROOT)
+SETTINGS = SettingsStore(DATA_ROOT)
+MSGFILTERS = MessageFilterStore(DATA_ROOT)
 try:
     USERS.ensure_admins(ADMIN_USERS)
 except Exception as _exc:  # noqa: BLE001 (best-effort bootstrap; store may be read-only)
@@ -143,7 +158,25 @@ def _inject_user():
             admin = USERS.is_admin(username)
         except Exception:  # noqa: BLE001
             admin = False
-    return {"current_user": username, "is_admin": admin}
+    presets = []
+    filters = []
+    ui = {}
+    if username:
+        try:
+            presets = PRESETS_STORE.list(username)
+        except Exception:  # noqa: BLE001
+            presets = []
+        try:
+            filters = MSGFILTERS.list(username)
+        except Exception:  # noqa: BLE001
+            filters = []
+        try:
+            ui = SETTINGS.get(username)
+        except Exception:  # noqa: BLE001
+            ui = {}
+    return {"current_user": username, "is_admin": admin, "pref_presets": presets,
+            "pref_filters": filters,
+            "ui_theme": ui.get("theme", ""), "ui_font": ui.get("font", "")}
 
 
 # Endpoints reachable without an authenticated session.
@@ -849,11 +882,12 @@ def select_post():
     return redirect(url_for("view"))
 
 
-def _resolve_selection(state, args, flash_errors=True):
+def _resolve_selection(state, args, presets, flash_errors=True):
     """Resolve the selected sources and parsed filters from request args.
 
     Shared by the view and export routes so both honour the same preset,
-    source selection, timestamp range, and text query. Returns a dict.
+    source selection, timestamp range, and text query. ``presets`` is the
+    user's {id: {'label','files',...}} preset dict. Returns a dict.
     """
     all_sources = sorted(state["sources"].values(), key=lambda s: s.source_id)
     existing_ids = {s.source_id for s in all_sources}
@@ -888,14 +922,12 @@ def _resolve_selection(state, args, flash_errors=True):
     lgset_raw = args.get("lgset", "").strip()
     lgset_ids = [int(x) for x in lgset_raw.split(",") if x.strip().isdigit()]
 
-    # Default to the WiFi Analysis preset only on a truly fresh log view (no
-    # explicit choice / interaction, and not while viewing the non-log bundle).
+    # No auto-default: a fresh view shows ALL sources. A preset applies only when
+    # explicitly chosen (``?preset=<id>``), and it stays applied while the form
+    # carries it in the hidden ``preset`` field — so changing time/text/level
+    # filters keeps the preset enabled until the user edits the source picks.
     preset_key = explicit_preset
-    if (not preset_key and not has_src and not want_all and not interacted
-            and not show_others and "wifi" in PRESETS):
-        preset_key = "wifi"
-
-    preset = PRESETS.get(preset_key) if not show_others else None
+    preset = presets.get(preset_key) if not show_others else None
     if preset:
         wanted = preset["files"]
         selected_ids = {
@@ -975,7 +1007,8 @@ def view():
         flash("Upload some logs first.", "info")
         return redirect(url_for("index"))
 
-    sel = _resolve_selection(state, request.args)
+    user_presets = _user_presets(session["username"])
+    sel = _resolve_selection(state, request.args, user_presets)
     all_sources = sel["all_sources"]
     selected_ids = sel["selected_ids"]
     selected = sel["selected"]
@@ -1001,7 +1034,7 @@ def view():
     # matched set (regardless of how it was chosen).
     active_preset = preset_key
     if not active_preset:
-        for k, p in PRESETS.items():
+        for k, p in user_presets.items():
             matched = {s.source_id for s in all_sources
                        if _preset_matches(s.name, p["files"])}
             if matched and matched == selected_ids:
@@ -1322,7 +1355,7 @@ def view():
         qmode=qmode,
         page_size=page_size,
         paginate_enabled=PAGINATE,
-        presets=PRESETS,
+        presets=user_presets,
         active_preset=active_preset,
         legend_ids=legend_ids,
         legend_ids_str=legend_ids_str,
@@ -1364,6 +1397,95 @@ def view():
     )
 
 
+def _preset_redirect():
+    """Redirect back to the page the preset was managed from (validated)."""
+    nxt = request.form.get("next", "")
+    if _is_safe_next(nxt):
+        return redirect(nxt)
+    return redirect(url_for("index"))
+
+
+@app.route("/presets/add", methods=["POST"])
+def preset_add():
+    try:
+        PRESETS_STORE.add(session["username"], request.form.get("label", ""),
+                          request.form.get("stems", ""))
+    except ValueError as exc:
+        flash(str(exc), "error")
+    return _preset_redirect()
+
+
+@app.route("/presets/update", methods=["POST"])
+def preset_update():
+    pid = request.form.get("id", "").strip()
+    try:
+        PRESETS_STORE.update(session["username"], pid, request.form.get("label", ""),
+                             request.form.get("stems", ""))
+    except ValueError as exc:
+        flash(str(exc), "error")
+    except KeyError:
+        flash("That preset no longer exists.", "error")
+    return _preset_redirect()
+
+
+@app.route("/presets/delete", methods=["POST"])
+def preset_delete():
+    pid = request.form.get("id", "").strip()
+    PRESETS_STORE.delete(session["username"], pid)
+    return _preset_redirect()
+
+
+@app.route("/preferences")
+def preferences_page():
+    """Full-page preferences: theme, font, source presets, and a link to the
+    message-filters manager. Appearance settings persist per account."""
+    return render_template("preferences.html")
+
+
+@app.route("/filters")
+def filters_page():
+    """Message filters now live on the Preferences page; keep this path working."""
+    return redirect(url_for("preferences_page", _anchor="message-filters"))
+
+
+@app.route("/filters/add", methods=["POST"])
+def filter_add():
+    try:
+        MSGFILTERS.add(session["username"], request.form.get("label", ""),
+                       request.form.get("expr", ""))
+    except ValueError as exc:
+        flash(str(exc), "error")
+    return _preset_redirect()
+
+
+@app.route("/filters/update", methods=["POST"])
+def filter_update():
+    fid = request.form.get("id", "").strip()
+    try:
+        MSGFILTERS.update(session["username"], fid, request.form.get("label", ""),
+                          request.form.get("expr", ""))
+    except ValueError as exc:
+        flash(str(exc), "error")
+    except KeyError:
+        flash("That filter no longer exists.", "error")
+    return _preset_redirect()
+
+
+@app.route("/filters/delete", methods=["POST"])
+def filter_delete():
+    fid = request.form.get("id", "").strip()
+    MSGFILTERS.delete(session["username"], fid)
+    return _preset_redirect()
+
+
+@app.route("/prefs/ui", methods=["POST"])
+def prefs_ui():
+    """Persist a per-user UI setting (theme/font) so it follows the account."""
+    ok = SETTINGS.set(session["username"], request.form.get("key", ""),
+                      request.form.get("value", ""))
+    return ("", 204) if ok else ("invalid setting", 400)
+
+
 @app.route("/export")
 def export():
     """Download the current view's lines (merged or a single file), honouring
@@ -1375,7 +1497,8 @@ def export():
         flash("Upload some logs first.", "info")
         return redirect(url_for("index"))
 
-    sel = _resolve_selection(state, request.args, flash_errors=False)
+    sel = _resolve_selection(state, request.args, _user_presets(session["username"]),
+                             flash_errors=False)
     mode = sel["mode"]
     start, end, q_raw = sel["start"], sel["end"], sel["q_raw"]
     qmode = sel["qmode"]

@@ -304,10 +304,14 @@ svg.ic { width: 1em; height: 1em; vertical-align: -0.125em; }
 }
 .grow-wrap > textarea::placeholder { color: var(--text); opacity: .35; }
 .q-slot:focus-within .grow-wrap { z-index: 30; box-shadow: 0 12px 30px rgba(0, 0, 0, .45); }
-.q-slot:focus-within .grow-wrap::after { display: block; }
+/* Expanded: give the text extra breathing room at the top and bottom. The
+   textarea and its ::after sizer must keep identical box models, so bump the
+   vertical padding on both together. */
+.q-slot:focus-within .grow-wrap::after { display: block; padding-top: 14px; padding-bottom: 14px; }
 .q-slot:focus-within .grow-wrap > textarea {
   white-space: pre-wrap; overflow-wrap: anywhere;
   height: auto; max-height: 320px; overflow: auto;
+  padding-top: 14px; padding-bottom: 14px;
   border-color: var(--accent); background: var(--surface); outline: none;
 }
 .q-field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -1269,6 +1273,142 @@ header.app .user {
 }
 .fo-name { line-height: 1.25; font-size: 13px; }
 .fo-meta { display: block; font-size: 10.5px; opacity: .5; letter-spacing: .3px; }
+
+/* ---- Preferences dropdown (header): theme + font + source presets ---- */
+.pref-menu { position: relative; }
+.pref-trigger {
+  display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+  background: var(--bg); border: 1px solid var(--border); color: var(--text-bright);
+  font-family: 'Share Tech Mono', monospace; font-size: 12px; letter-spacing: .5px;
+  padding: 6px 10px; border-radius: 7px; transition: border-color .15s;
+}
+.pref-trigger:hover { border-color: var(--accent); }
+.pref-gear { color: var(--accent); flex: none; }
+.pref-label { text-transform: none; }
+.pref-trigger .tt-caret { opacity: .55; font-size: 10px; transition: transform .18s; }
+.pref-menu.open .tt-caret { transform: rotate(180deg); }
+.pref-pop {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 120;
+  width: 360px; max-width: calc(100vw - 32px); max-height: 80vh; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .45); padding: 6px;
+  animation: tp-in .14s ease-out;
+}
+.pref-pop[hidden] { display: none; }
+.pref-sec { padding: 10px; }
+.pref-sec + .pref-sec { border-top: 1px solid var(--border); }
+.pref-sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 2px 10px; }
+.pref-sec-title {
+  font-family: 'Share Tech Mono', monospace; font-size: 11px; text-transform: uppercase;
+  letter-spacing: 1.5px; opacity: .7;
+}
+.pref-cur { font-size: 11px; opacity: .6; text-align: right; }
+/* Theme/font grids render inline inside the panel (no nested popover chrome). */
+.pref-pop .theme-pop, .pref-pop .font-pop,
+.pref-page .theme-pop, .pref-page .font-pop {
+  position: static; width: auto; max-height: none; overflow: visible;
+  background: none; border: 0; box-shadow: none; padding: 0; animation: none;
+}
+.pref-hint { font-size: 11px; opacity: .55; margin: 0 2px 10px; line-height: 1.4; }
+
+/* Source-preset manager rows */
+.preset-mgr { display: flex; flex-direction: column; gap: 8px; }
+.pm-row {
+  display: flex; align-items: stretch; gap: 8px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 8px;
+}
+.pm-row.pm-add { border-style: dashed; }
+.pm-fields { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.pm-label, .pm-stems {
+  width: 100%; background: var(--surface); color: var(--text-bright);
+  border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px;
+  font-family: 'Share Tech Mono', monospace; font-size: 12px; outline: none;
+  transition: border-color .12s;
+}
+.pm-label { font-weight: 600; }
+.pm-stems { font-size: 11px; opacity: .92; }
+.pm-label:focus, .pm-stems:focus { border-color: var(--accent); }
+.pm-actions { display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+.pm-actions .btn { padding: 5px 10px; font-size: 11px; white-space: nowrap; }
+.pm-addbtn { border-color: var(--accent); color: var(--accent); }
+.pm-del {
+  cursor: pointer; background: none; border: 1px solid var(--border); color: var(--error);
+  border-radius: 6px; padding: 4px 8px; font-size: 12px; line-height: 1; transition: all .12s;
+}
+.pm-del:hover { border-color: var(--error); background: var(--error); color: #fff; }
+
+/* ---- Saved "message contains" filters dropdown (header) ---- */
+.filt-menu { position: relative; }
+.filt-trigger {
+  display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+  background: var(--bg); border: 1px solid var(--border); color: var(--text-bright);
+  font-family: 'Share Tech Mono', monospace; font-size: 12px; letter-spacing: .5px;
+  padding: 6px 10px; border-radius: 7px; transition: border-color .15s;
+}
+.filt-trigger:hover { border-color: var(--accent); }
+.filt-ic { color: var(--accent); flex: none; }
+.filt-trigger .tt-caret { opacity: .55; font-size: 10px; transition: transform .18s; }
+.filt-menu.open .tt-caret { transform: rotate(180deg); }
+.filt-pop {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 120;
+  width: 400px; max-width: calc(100vw - 32px); max-height: 70vh; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .45); padding: 12px;
+  animation: tp-in .14s ease-out;
+}
+.filt-pop[hidden] { display: none; }
+.filt-head { margin: 0 2px 10px; }
+.filt-title {
+  display: block; font-family: 'Share Tech Mono', monospace; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 1.5px; opacity: .7;
+}
+.filt-sub { display: block; font-size: 11px; opacity: .55; margin-top: 3px; line-height: 1.4; }
+.filt-row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px;
+}
+.filt-row + .filt-row { margin-top: 8px; }
+.filt-info { flex: 1; min-width: 0; }
+.filt-label {
+  display: block; font-family: 'Share Tech Mono', monospace; font-size: 12px;
+  font-weight: 600; color: var(--text-bright);
+}
+.filt-expr {
+  display: block; margin-top: 3px; font-family: 'Share Tech Mono', monospace; font-size: 11px;
+  color: var(--text); opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.filt-copy {
+  flex: none; cursor: pointer; background: var(--surface); color: var(--accent);
+  border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px;
+  font-family: 'Share Tech Mono', monospace; font-size: 11px; transition: all .12s;
+}
+.filt-copy:hover { border-color: var(--accent); }
+.filt-copy.ok { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+.filt-empty { font-size: 12px; opacity: .6; margin: 6px 2px; line-height: 1.5; }
+.filt-manage {
+  display: block; text-align: center; margin: 10px 2px 2px; padding-top: 10px;
+  border-top: 1px solid var(--border); font-family: 'Share Tech Mono', monospace;
+  font-size: 11px; color: var(--accent); text-decoration: none;
+}
+.filt-manage:hover { text-decoration: underline; }
+.pref-manage-link { display: inline-block; margin: 2px; }
+
+/* ---- Full-page preferences (theme / font / presets / filters) ---- */
+.pref-link { display: inline-flex; align-items: center; gap: 7px; }
+.pref-link .pref-gear { color: var(--accent); flex: none; }
+.pref-page { display: flex; flex-direction: column; gap: 18px; }
+.pref-page .pref-sec-head { margin: 0 0 14px; }
+.pref-page .tp-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+.pref-page .fo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.pref-page .font-opt { margin-bottom: 0; }
+
+/* Full-page editor rows (presets + filters): roomy, horizontal label + value. */
+.filter-mgr-page { gap: 12px; }
+.filter-mgr-page .pm-row { padding: 12px 14px; align-items: center; flex-wrap: wrap; }
+.filter-mgr-page .pm-fields { flex-direction: row; flex-wrap: wrap; gap: 10px; align-items: center; }
+.filter-mgr-page .pm-label { flex: 0 1 220px; min-width: 150px; font-size: 13px; font-weight: 600; }
+.filter-mgr-page .pm-stems { flex: 1 1 340px; min-width: 200px; font-size: 13px; opacity: 1; }
+.filter-mgr-page .pm-actions { flex-direction: row; align-items: center; gap: 8px; margin-left: auto; }
 
 /* ---- Jump-to-line match navigator (floating find bar) ---- */
 .find-bar {
