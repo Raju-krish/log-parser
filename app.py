@@ -379,15 +379,18 @@ def _human_size(num: int) -> str:
     return f"{num} B"
 
 
-def _register_source_groups(sid: str, groups: list[tuple]) -> None:
+def _register_source_groups(sid: str, groups: list[tuple], append: bool = False) -> None:
     """Register sources from one or more (label, root, files) groups.
 
     When more than one group is provided, each source name is prefixed with the
     group's label so bundles from different time windows stay distinguishable.
+    With ``append`` the new sources are added to the session's existing set
+    (continuing source ids and colours); otherwise they replace it.
     """
     cfg = _parser_config()
-    sources: dict[int, LogSource] = {}
-    idx = 0
+    existing = _SESSIONS[sid].get("sources") if append else None
+    sources: dict[int, LogSource] = dict(existing) if existing else {}
+    idx = (max(sources) + 1) if sources else 0
     multi = len(groups) > 1
     for label, root, files in groups:
         for path in sorted(files, key=lambda p: os.path.relpath(p, root).lower()):
@@ -468,7 +471,25 @@ def _expand_deep_archives(archives: list[str], workdir: str,
     return groups
 
 
-def _finalize_collected(sid: str, collected: list[str]):
+def _load_summary(logs: int, others: int, before: int | None = None) -> str:
+    """Flash text after a load. With ``before`` (an append) report how many
+    files were added and the running total; otherwise the plain loaded count."""
+    if before is not None:
+        added = (logs + others) - before
+        msg = f"Added {added} file(s)."
+        if logs:
+            msg += f" {logs} log file(s) now loaded."
+        if others:
+            msg += f" {others} non-log file(s) set aside."
+        return msg
+    msg = f"Loaded {logs} log file(s)."
+    if others:
+        msg += (f" {others} non-log file(s) set aside \u2014 use "
+                f"\u201cShow other files\u201d to view them.")
+    return msg
+
+
+def _finalize_collected(sid: str, collected: list[str], append: bool = False):
     """Show the bundle picker only when the upload is primarily a *collection of
     archives* (a zip/folder of per-time-window bundles). Archives that are merely
     incidental among log files (e.g. ``nvram/logs/dhd_*.tar.gz``) are auto-extracted
@@ -489,27 +510,29 @@ def _finalize_collected(sid: str, collected: list[str]):
              "size_h": _human_size(os.path.getsize(p))}
             for i, p in enumerate(sorted(archives, key=lambda x: os.path.basename(x).lower()))
         ]
-        _SESSIONS[sid]["pending"] = {"archives": archives_meta, "plain": plain}
+        _SESSIONS[sid]["pending"] = {
+            "archives": archives_meta, "plain": plain,
+            "append": append, "token": uuid.uuid4().hex[:8],
+        }
         flash(f"Found {len(archives_meta)} log bundle(s) — choose which to analyze.", "info")
         return redirect(url_for("select"))
 
     # Otherwise register the plain logs plus anything inside incidental archives.
     workdir = _SESSIONS[sid]["dir"]
+    before = len(_SESSIONS[sid].get("sources") or {})
     groups: list[tuple] = []
     if plain:
         proot = os.path.commonpath(plain) if len(plain) > 1 else os.path.dirname(plain[0])
         groups.append((None, proot, plain))
-    groups.extend(_expand_deep_archives(archives, workdir))
+    deep_base = os.path.join(workdir, "deep", uuid.uuid4().hex[:8])
+    groups.extend(_expand_deep_archives(archives, deep_base))
 
     if not groups:
         flash("No readable log files were found.", "error")
         return redirect(url_for("index"))
-    _register_source_groups(sid, groups)
+    _register_source_groups(sid, groups, append=append)
     logs, others = _split_counts(sid)
-    msg = f"Loaded {logs} log file(s)."
-    if others:
-        msg += f" {others} non-log file(s) set aside \u2014 use \u201cShow other files\u201d to view them."
-    flash(msg, "info")
+    flash(_load_summary(logs, others, before if append else None), "info")
     return redirect(url_for("view"))
 
 
@@ -788,8 +811,19 @@ def upload():
         flash("Select files to upload or enter a server-side path.", "error")
         return redirect(url_for("index"))
 
-    workdir = _reset_workdir(sid)
-    raw_dir = os.path.join(workdir, "raw")
+    # "Add to current set" keeps the existing sources and registers the new
+    # files/archives alongside them; a fresh load (default) replaces everything.
+    state = _current(sid)
+    do_append = request.form.get("append") == "1" and bool(state and state.get("sources"))
+    if do_append:
+        workdir = state["dir"]
+        # Each append lands in its own batch subdir so file names never collide
+        # with the original load or an earlier append.
+        batch = os.path.join(workdir, "add", uuid.uuid4().hex[:8])
+    else:
+        workdir = _reset_workdir(sid)
+        batch = workdir
+    raw_dir = os.path.join(batch, "raw")
     os.makedirs(raw_dir, exist_ok=True)
 
     collected: list[str] = []
@@ -800,19 +834,19 @@ def upload():
             saved = os.path.join(raw_dir, fname)
             storage.save(saved)
             if ingest.is_archive(fname):
-                extract_dir = os.path.join(workdir, "extracted", fname)
+                extract_dir = os.path.join(batch, "extracted", fname)
                 os.makedirs(extract_dir, exist_ok=True)
                 collected.extend(ingest.extract_archive(saved, extract_dir))
             else:
                 collected.append(saved)
         # 2) Server-side path (folder or file), read in place.
         if path_input:
-            collected.extend(_collect_from_path(path_input, workdir))
+            collected.extend(_collect_from_path(path_input, batch))
     except ingest.IngestError as exc:
         flash(f"Rejected: {exc}", "error")
         return redirect(url_for("index"))
 
-    return _finalize_collected(sid, collected)
+    return _finalize_collected(sid, collected, append=do_append)
 
 
 @app.route("/select", methods=["GET"])
@@ -841,6 +875,9 @@ def select_post():
         flash("Select at least one log bundle to analyze.", "error")
         return redirect(url_for("select"))
 
+    append = bool(pending.get("append"))
+    before = len(state.get("sources") or {})
+    token = pending.get("token") or "0"
     workdir = state["dir"]
     by_id = {a["id"]: a for a in pending["archives"]}
     groups: list[tuple] = []
@@ -849,7 +886,7 @@ def select_post():
             arc = by_id.get(aid)
             if not arc:
                 continue
-            bundle_dir = os.path.join(workdir, "bundles", str(aid))
+            bundle_dir = os.path.join(workdir, "bundles", token, str(aid))
             os.makedirs(bundle_dir, exist_ok=True)
             files = ingest.extract_archive(arc["path"], bundle_dir)
             inner = [f for f in files if ingest.is_archive(os.path.basename(f))]
@@ -872,12 +909,16 @@ def select_post():
         flash("No log files were found in the selected bundle(s).", "error")
         return redirect(url_for("select"))
 
-    _register_source_groups(sid, groups)
+    _register_source_groups(sid, groups, append=append)
     _SESSIONS[sid].pop("pending", None)
     logs, others = _split_counts(sid)
-    msg = f"Loaded {logs} log file(s) from {len(chosen)} bundle(s)."
-    if others:
-        msg += f" {others} non-log file(s) set aside."
+    if append:
+        added = (logs + others) - before
+        msg = f"Added {added} file(s) from {len(chosen)} bundle(s). {logs} log file(s) now loaded."
+    else:
+        msg = f"Loaded {logs} log file(s) from {len(chosen)} bundle(s)."
+        if others:
+            msg += f" {others} non-log file(s) set aside."
     flash(msg, "info")
     return redirect(url_for("view"))
 

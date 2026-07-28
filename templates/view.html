@@ -22,6 +22,25 @@
 </div>
 {% endif %}
 
+{# ---- Add more logs to the current set without losing this view ---- #}
+<details class="card add-logs-card">
+  <summary class="add-logs-summary">
+    <svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+    <span class="al-title">Add more logs</span>
+    <span class="hint">files, archive, or server path — added to the {{ all_sources|length }} loaded</span>
+  </summary>
+  <div class="add-logs-body">
+    <form method="POST" action="{{ url_for('upload') }}" enctype="multipart/form-data" class="add-logs-form">
+      <input type="hidden" name="append" value="1">
+      <input type="file" name="files" multiple aria-label="Files or archive to add" />
+      <span class="alf-or">or</span>
+      <input type="text" name="path" class="alf-path" placeholder="/path/to/logs on this machine" autocomplete="off" aria-label="Server path to add" />
+      <button type="submit" class="btn-primary alf-btn" data-loading="Adding &amp; parsing logs…">Add</button>
+    </form>
+    <p class="alf-hint mono">Added to the current set · a folder loads every log inside it · archives are extracted.</p>
+  </div>
+</details>
+
 <div class="card controls">
   <form method="GET" action="{{ url_for('view') }}" id="controls-form">
     <input type="hidden" name="lgset" value="{{ legend_ids_str }}">

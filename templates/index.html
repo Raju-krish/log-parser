@@ -8,6 +8,7 @@
      separately or <strong>merge</strong> them into a single time-ordered, color-coded, searchable timeline.</p>
 </section>
 
+{% set loaded_count = sources|length if sources else 0 %}
 {% include "_upload_form.html" %}
 
 {% if sources %}

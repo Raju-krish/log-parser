@@ -1,4 +1,11 @@
-{# Reusable upload form (used by the home page and the focused upload page). #}
+{# Reusable upload form (used by the home page and the focused upload page).
+   Optional context vars set by the caller before {% include %}:
+     loaded_count   - number of sources already loaded (enables the Add/Replace choice)
+     append_default - true to preselect "Add to current set" (e.g. on the view page)
+     submit_label   - text for the submit button (default "Load logs") #}
+{% set loaded_count = loaded_count if loaded_count is defined else 0 %}
+{% set append_default = append_default if append_default is defined else false %}
+{% set submit_label = submit_label if submit_label is defined else 'Load logs' %}
 <div class="card upload-card">
   <form method="POST" action="{{ url_for('upload') }}" enctype="multipart/form-data" id="load-form">
     <div class="upload-grid">
@@ -27,9 +34,28 @@
 
     </div>
 
+    {% if loaded_count and loaded_count > 0 %}
+    <div class="load-mode" role="radiogroup" aria-label="How to load these logs">
+      <label class="lm-opt {{ 'on' if not append_default }}">
+        <input type="radio" name="append" value="0" {{ 'checked' if not append_default }}>
+        <span class="lm-title">Replace current set</span>
+        <span class="lm-sub">Clear the {{ loaded_count }} loaded source(s) and start fresh</span>
+      </label>
+      <label class="lm-opt {{ 'on' if append_default }}">
+        <input type="radio" name="append" value="1" {{ 'checked' if append_default }}>
+        <span class="lm-title">Add to current set</span>
+        <span class="lm-sub">Keep the {{ loaded_count }} loaded source(s) and add these</span>
+      </label>
+    </div>
+    {% endif %}
+
     <div class="upload-footer">
+      {% if loaded_count and loaded_count > 0 %}
+      <p class="meta">Provide an upload <strong>or</strong> a path (or both). Choose whether to <strong>replace</strong> the current logs or <strong>add</strong> to them above.</p>
+      {% else %}
       <p class="meta">Provide an upload <strong>or</strong> a path (or both). Loading replaces the current set.</p>
-      <button type="submit" class="btn-primary">▶ &nbsp; Load logs</button>
+      {% endif %}
+      <button type="submit" class="btn-primary">▶ &nbsp; {{ submit_label }}</button>
     </div>
   </form>
 </div>
@@ -68,11 +94,29 @@
     // heavy captures can take a while, so give clear "working" feedback.
     var form = document.getElementById('load-form');
     var pathEl = document.getElementById('path');
+
+    // Highlight the selected load-mode option (Replace vs. Add), when shown.
+    var modeRadios = form ? form.querySelectorAll('input[name="append"]') : [];
+    if (modeRadios.length) {
+      var syncMode = function () {
+        Array.prototype.forEach.call(modeRadios, function (r) {
+          var opt = r.closest('.lm-opt');
+          if (opt) opt.classList.toggle('on', r.checked);
+        });
+      };
+      Array.prototype.forEach.call(modeRadios, function (r) {
+        r.addEventListener('change', syncMode);
+      });
+      syncMode();
+    }
+
     if (form) form.addEventListener('submit', function () {
       var hasFile = input && input.files && input.files.length;
       var hasPath = pathEl && pathEl.value.trim();
       if ((hasFile || hasPath) && window.lpShowLoading) {
-        window.lpShowLoading('Loading & parsing logs…');
+        var appendOn = form.querySelector('input[name="append"]:checked');
+        var adding = appendOn && appendOn.value === '1';
+        window.lpShowLoading(adding ? 'Adding & parsing logs…' : 'Loading & parsing logs…');
       }
     });
   })();

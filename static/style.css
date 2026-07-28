@@ -235,6 +235,47 @@ svg.ic { width: 1em; height: 1em; vertical-align: -0.125em; }
 }
 .btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
 
+/* Load mode: Replace vs. Add to current set (shown only when logs are loaded). */
+.load-mode {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 4px 16px 0;
+}
+@media (max-width: 640px) { .load-mode { grid-template-columns: 1fr; } }
+.lm-opt {
+  display: flex; flex-direction: column; gap: 3px; position: relative;
+  padding: 10px 12px 10px 36px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--surface2); cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.lm-opt:hover { border-color: var(--accent); }
+.lm-opt input { position: absolute; left: 12px; top: 13px; accent-color: var(--accent); }
+.lm-opt.on { border-color: var(--accent); background: var(--accent-soft); }
+.lm-title { font-weight: 600; color: var(--text-bright); font-size: 13px; }
+.lm-sub { color: var(--text); font-size: 12px; opacity: .85; }
+
+/* "Add more logs" collapsible on the view page (compact). */
+.add-logs-card { padding: 0; overflow: hidden; }
+.add-logs-summary {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 16px; cursor: pointer; list-style: none;
+  color: var(--text-bright); font-weight: 600;
+}
+.add-logs-summary::-webkit-details-marker { display: none; }
+.add-logs-summary .ic { color: var(--accent); flex: none; }
+.add-logs-summary .al-title { font-size: 13px; }
+.add-logs-summary .hint { font-weight: 400; font-size: 12px; }
+.add-logs-card[open] .add-logs-summary { border-bottom: 1px solid var(--border); }
+.add-logs-body { padding: 10px 16px 12px; }
+.add-logs-form { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.add-logs-form input[type="file"] { font-size: 12px; color: var(--text); max-width: 230px; }
+.add-logs-form .alf-or { color: var(--text); opacity: .65; font-size: 12px; }
+.add-logs-form .alf-path {
+  flex: 1 1 200px; min-width: 150px; padding: 7px 10px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 5px; color: var(--text-bright); font-size: 13px;
+}
+.add-logs-form .btn-primary { padding: 8px 18px; font-size: 12px; }
+.alf-hint { margin: 8px 0 0; font-size: 11px; color: var(--text); opacity: .7; }
+
 .sources-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
 .sources-head h3 { display: flex; align-items: center; gap: 10px; font-size: 15px; color: var(--text-bright); }
 .pill {
