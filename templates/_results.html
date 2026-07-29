@@ -43,7 +43,7 @@
   {% if jump_found %}
     <span>▸ Match <strong>{{ jump_n }}</strong> of <strong>{{ jump_total }}</strong> for “{{ jump_raw }}” — <span class="jb-hint">use the match bar (or F3) to step through them</span>.</span>
   {% else %}
-    <span>No line containing “{{ jump_raw }}” in the current selection.</span>
+    <span>No line matching “{{ jump_raw }}” in the current selection.</span>
   {% endif %}
   <a class="btn secondary" id="jump-clear" href="#">Clear jump</a>
 </div>

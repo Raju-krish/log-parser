@@ -59,6 +59,7 @@
       </div>
       <div class="ctl-spacer"></div>
       <span class="auto-hint">Changes apply automatically</span>
+      <a class="btn secondary split-open" href="{{ url_for('split_view') }}" title="Open two independent views side by side"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M12 4v16"/></svg> Split view</a>
       <a class="btn secondary" href="{{ url_for('view') }}">Clear</a>
     </div>
 
@@ -84,10 +85,10 @@
         <input type="hidden" name="qmode" id="qmode" value="{{ qmode }}">
       </div>
       <div class="field field-grow">
-        <label for="jump">Global search <span class="hint">(and jump to the match)</span></label>
+        <label for="jump">Global search <span class="hint">(&amp;&amp;, ||, parentheses — jumps to matches)</span></label>
         <div class="q-slot">
           <div class="grow-wrap" id="jump-grow">
-            <textarea id="jump" name="jump" rows="1" spellcheck="false" autocomplete="off" placeholder="paste or type part of a log line">{{ jump_raw }}</textarea>
+            <textarea id="jump" name="jump" rows="1" spellcheck="false" autocomplete="off" placeholder="term, or a &amp;&amp; / || expression — jumps to each match">{{ jump_raw }}</textarea>
           </div>
         </div>
       </div>
@@ -152,6 +153,16 @@
   (function () {
     var form = document.getElementById('controls-form');
     if (!form) return;
+
+    // In split view each pane is an embedded /view (?embed=1). Keep that flag on
+    // every in-pane fetch and history entry so a hard reload of a pane stays
+    // chromeless and independent.
+    var IS_EMBED = false;
+    try { IS_EMBED = new URLSearchParams(location.search).get('embed') === '1'; } catch (e) {}
+    function embedify(u) {
+      if (!IS_EMBED || /[?&]embed=1(?:&|$)/.test(u)) return u;
+      return u + (u.indexOf('?') >= 0 ? '&' : '?') + 'embed=1';
+    }
 
     // Drop the sticky preset (called when the user edits the source selection).
     function clearPreset() {
@@ -269,31 +280,26 @@
 
     // With a "Message contains" filter active, clicking a filename EXPANDS that
     // line to the full picture: show every source, drop the line filter, move
-    // the specific term that matched THIS line (the first highlighted term in
-    // the row — e.g. "deauth" out of `asso || deauth || reassoc`) into Global
-    // search, and centre the clicked line. The previous filter is stashed so
-    // Ctrl+G can bring it back.
+    // the WHOLE filter expression into Global search (which honours the same
+    // &&/||/parentheses syntax, so the exact same lines stay matched — now
+    // highlighted and steppable across every source), and centre the clicked
+    // line. The previous filter is stashed so Ctrl+G can swap it straight back.
     function expandFromFilter(badgeEl) {
       var srcid = badgeEl.getAttribute('data-srcid');
       var seq = badgeEl.getAttribute('data-seq');
-      var row = badgeEl.closest('tr');
       var qEl = form.querySelector('[name="q"]');
       var prevFilter = qEl ? qEl.value.trim() : '';
-      // Matched term = the first "message contains" highlight in the clicked
-      // row; fall back to the whole filter text if the row isn't highlighted.
-      var term = '';
-      if (row) { var mk = row.querySelector('.msg mark'); if (mk) term = (mk.textContent || '').trim(); }
-      if (!term) term = prevFilter;
       try { if (prevFilter) sessionStorage.setItem('lp_last_msg_filter', prevFilter); } catch (e) {}
       // Show every source.
       form.querySelectorAll('input[name="src"]').forEach(function (b) { b.checked = true; });
       clearPreset();
       setLgsetToChecked();
       updateSummary();
-      // Drop the line filter; put the matched term into Global search.
+      // Drop the line filter; carry the whole expression into Global search so
+      // the same set of lines is matched, just globally and centred here.
       if (qEl) qEl.value = '';
       var jf = form.querySelector('[name="jump"]');
-      if (jf) jf.value = term;
+      if (jf) jf.value = prevFilter;
       var url = formURL();
       url += (url.indexOf('?') === -1 ? '?' : '&')
            + 'locsrcid=' + encodeURIComponent(srcid)
@@ -328,6 +334,7 @@
     }
     var reqSeq = 0;
     function loadView(url, push, scrollTo) {
+      url = embedify(url);
       var mySeq = ++reqSeq;
       setBusy(true);
       fetch(url, { headers: { 'X-Requested-With': 'fetch' }, credentials: 'same-origin' })
@@ -409,6 +416,14 @@
     // Auto-apply: any named control change reloads the results.
     form.addEventListener('change', function (ev) {
       if (!ev.target || !ev.target.name) return;   // ignore the unnamed search box
+      // Remember each search box's last non-empty text so the floating Ctrl+G
+      // (message contains) and Ctrl+F (global search) boxes can recall them
+      // independently of one another.
+      try {
+        var lastVal = (ev.target.value || '').trim();
+        if (lastVal && ev.target.name === 'q') sessionStorage.setItem('lp_last_msg_filter', lastVal);
+        else if (lastVal && ev.target.name === 'jump') sessionStorage.setItem('lp_last_global_search', lastVal);
+      } catch (e) {}
       if (ev.target.name === 'src') { clearPreset(); setLgsetToChecked(); updateSummary(); }  // manual pick drops the preset
       loadView(formURL());
     });
@@ -1445,6 +1460,7 @@
     function go(delta) {
       var q = jumpVal();
       if (!q || busy) return;
+      try { sessionStorage.setItem('lp_last_global_search', q); } catch (e) {}   // remember for Ctrl+F recall
       var st = state();
       var fresh = (!st || st.q !== q);
       var jp = jumpParams(q);
@@ -1540,7 +1556,11 @@
         e.preventDefault();
         var nn = document.getElementById('notes-nav'); if (nn) nn.hidden = true;
         bar.hidden = false;
-        fbQ.value = jumpVal();
+        // Decoupled from the message-contains box: prefill with the live global
+        // search, else the last global search entered — press Enter to re-run it.
+        var lastGS = '';
+        try { lastGS = sessionStorage.getItem('lp_last_global_search') || ''; } catch (e) {}
+        fbQ.value = jumpVal() || lastGS;
         fbQ.focus(); fbQ.select();
       }
     });
@@ -1584,9 +1604,11 @@
 
 <script>
   // ---- Ctrl+G: floating "Message contains" filter box --------------------
-  // Reopen / edit the line filter without scrolling up to the controls. Mainly
-  // used to get back to a filtered view after a filename-badge "expand to
-  // context" (which moved the filter term into Global search).
+  // Reopen / edit the line filter without scrolling up to the controls, and
+  // recall the LAST "message contains" filter entered — remembered per box,
+  // independently of Global search. After a filename-badge "expand to context"
+  // the filter is also stashed here, so Ctrl+G still swaps it straight back into
+  // "message contains" and restores the focused view.
   (function () {
     var bar = document.getElementById('filter-bar');
     var cForm = document.getElementById('controls-form');
@@ -1602,6 +1624,10 @@
       var fb = document.getElementById('find-bar'); if (fb) fb.hidden = true;   // one bar at a time
       var nn = document.getElementById('notes-nav'); if (nn) nn.hidden = true;
       var cur = (qField() && qField().value.trim()) || '';
+      // Decoupled from Global search: prefill with the current filter, else the
+      // last "message contains" filter entered (top box or this one). An
+      // "expand to context" also stashes the filter here, so applying still
+      // swaps it straight back after a badge expand.
       var last = '';
       try { last = sessionStorage.getItem('lp_last_msg_filter') || ''; } catch (e) {}
       fltQ.value = cur || last;
@@ -1612,7 +1638,10 @@
     function applyFilter() {
       var v = fltQ.value.trim();
       var q = qField(); if (q) q.value = v;
-      var j = jField(); if (j) j.value = '';    // returning to filtering — drop Global search
+      // Decoupled from Global search: leave an unrelated global search intact.
+      // Only clear it when it is the same expression an "expand to context"
+      // parked there, so that round-trip stays clean.
+      var j = jField(); if (j && j.value.trim() === v) j.value = '';
       try { sessionStorage.setItem('lp_last_msg_filter', v); } catch (e) {}
       closeBar();
       if (window.__lpLoadView && window.__lpFormURL) window.__lpLoadView(window.__lpFormURL());

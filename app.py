@@ -210,14 +210,26 @@ def _highlight(text: str, query: str, jump: str = ""):
     """Escape line text, then wrap case-insensitive matches of the search
     term(s) in <mark>. Each distinct ``query`` term (split on ``|``) gets its
     own color class (``qh0``..``qhN``, cycled) so multiple terms are visually
-    separable; the ``jump`` term (Global search) keeps its distinct
-    <mark class="jmark">. Escaping happens before insertion (XSS-safe)."""
+    separable; every ``jump`` term (Global search) shares the distinct
+    <mark class="jmark">. Global search accepts the same boolean syntax as
+    "message contains" (``&&`` / ``||`` / parentheses), so each of its terms is
+    highlighted individually rather than the raw expression string. Escaping
+    happens before insertion (XSS-safe)."""
     escaped = str(escape(text))
     seen = set()
     groups = {}            # regex group name -> CSS class for the wrapper
     colored = []           # (css_class, escaped_term), in query order
-    if jump:
-        seen.add(str(escape(jump)).casefold())
+    # Global-search terms (all share the jmark colour). querylang.terms handles
+    # both a boolean expression and a plain phrase, returning one term for the
+    # latter — so a plain jump keeps highlighting exactly as before.
+    jump_escs = []
+    for jt in querylang.terms(jump):
+        esc_j = str(escape(jt))
+        key = esc_j.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        jump_escs.append(esc_j)
     idx = 0
     for term in querylang.terms(query):
         esc = str(escape(term))
@@ -228,9 +240,12 @@ def _highlight(text: str, query: str, jump: str = ""):
         colored.append((f"qh{idx % _HL_COLORS}", esc))
         idx += 1
     alts = []
-    if jump:
-        alts.append(("j", re.escape(str(escape(jump)))))
-        groups["j"] = "jmark"
+    # Jump terms first (longest first) so a Global-search hit wins any span it
+    # shares with a message-contains term.
+    for gi, esc_j in enumerate(sorted(jump_escs, key=len, reverse=True)):
+        gname = f"j{gi}"
+        alts.append((gname, re.escape(esc_j)))
+        groups[gname] = "jmark"
     # Longer terms first so they win over shorter overlapping ones; each term's
     # color stays tied to its position in the query, not this match order.
     for gi, (cls, esc) in enumerate(
@@ -246,6 +261,31 @@ def _highlight(text: str, query: str, jump: str = ""):
         return f'<mark class="{groups[m.lastgroup]}">{m.group(0)}</mark>'
 
     return Markup(pattern.sub(_repl, escaped))
+
+
+def _text_predicate(query: str):
+    """Compile ``query`` into a predicate ``f(casefolded_text) -> bool`` for
+    Global search / "jump to line", or ``None`` when the query is empty.
+
+    Honors the same Wireshark-style boolean syntax as the "message contains"
+    filter — ``&&`` (and), ``||`` (or) and parentheses over quoted/bare terms —
+    so a Global search expression matches the exact same lines the line filter
+    would. A query using none of those operators is matched as a plain
+    case-insensitive substring (Global search has always treated a lone ``|``
+    literally, so that behavior is preserved). The haystack passed to the
+    predicate must already be case-folded.
+    """
+    q = (query or "").strip()
+    if not q:
+        return None
+    if querylang.is_expression(q):
+        ast = querylang.parse(q)
+        if ast is not None:
+            return lambda hay: querylang.matches(ast, hay)
+        # Malformed expression: fall back to a literal match so a typo narrows
+        # rather than matching every line.
+    needle = q.casefold()
+    return lambda hay: needle in hay
 
 
 # Origin path segments surfaced in a source's short label. Matched as exact
@@ -1158,6 +1198,10 @@ def view():
     # line in its natural place in the timeline (no synthetic context window).
     # jumpn selects which match.
     jump_raw = request.args.get("jump", "").strip()
+    # Global search matches with the same boolean language as "message
+    # contains" (``&&`` / ``||`` / parentheses), so a filter moved here from the
+    # line filter resolves the identical set of lines. None when jump is empty.
+    jump_pred = _text_predicate(jump_raw)
     # ``jumpn`` explicitly selects a match to navigate to (F3 / next / prev,
     # 1-based). When it is absent, a fresh search lands on the first match
     # at/after the page the user is currently on (``jnear``) — so Ctrl+F from
@@ -1216,8 +1260,7 @@ def view():
         (``locseq``) is supplied and is itself a match, that line is selected —
         so "expand this filtered line to full context" centres on the clicked
         line while its filter term becomes the Global search."""
-        needle = jump_raw.casefold()
-        matches = [i for i, r in enumerate(records) if needle in r.text.casefold()]
+        matches = [i for i, r in enumerate(records) if jump_pred(r.text.casefold())]
         jump_info["total"] = len(matches)
         if not matches:
             return None, None
@@ -1271,7 +1314,6 @@ def view():
             # file (not just the open one) — like the merged view does — then
             # switches to the file that holds the jump_n-th match. Matches are
             # ordered file-by-file (selection order), then by line.
-            needle = jump_raw.casefold()
             hits = []                 # (source, local index within its filtered recs)
             per_src = {}              # source_id -> (recs_before_level, recs_after_level)
             for s in selected:
@@ -1279,7 +1321,7 @@ def view():
                 recs_lv = filter_by_level(recs_tq, level_raw)
                 per_src[s.source_id] = (recs_tq, recs_lv)
                 for i, r in enumerate(recs_lv):
-                    if needle in r.text.casefold():
+                    if jump_pred(r.text.casefold()):
                         hits.append((s, i))
             jump_info["total"] = len(hits)
             if hits:
@@ -1407,6 +1449,9 @@ def view():
             if _key == active_cat:
                 active_cat_label = _label
 
+    # Each pane of the split view is an embedded /view (?embed=1): base.html
+    # trims its chrome (site header, save/add cards, notes FAB) via a body class.
+    embed = request.args.get("embed") == "1"
     # A results-only fragment (frag=1) keeps AJAX / "go to line" responses
     # tiny — no controls, no 600-source list — so the client renders instantly.
     template = "_results.html" if request.args.get("frag") == "1" else "view.html"
@@ -1462,7 +1507,24 @@ def view():
         color_map=color_map,
         name_map=name_map,
         format_canonical=format_canonical,
+        embed=embed,
     )
+
+
+@app.route("/split")
+def split_view():
+    """Two independent panes over the same loaded logs, side by side. Each pane
+    is an embedded /view with its own Merged/Separate mode, Message-contains and
+    Global-search filters, and pagination — filtering one never touches the
+    other (same session, separate URL params)."""
+    sid = _get_session_id()
+    state = _current(sid)
+    if state and state.get("pending") and not state.get("sources"):
+        return redirect(url_for("select"))
+    if not state or not state["sources"]:
+        flash("Upload some logs first.", "info")
+        return redirect(url_for("index"))
+    return render_template("split.html")
 
 
 def _preset_redirect():

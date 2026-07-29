@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Log Parser — Split view{% endblock %}
+{% block content %}
+
+<div class="split-page">
+  <div class="split-toolbar">
+    <span class="split-brand">LOG <span>PARSER</span> · Split</span>
+    <span class="split-hint">Two independent views of the same logs — each pane has its own Merged/Separate, Message contains, Global search &amp; paging.</span>
+    <span class="split-spacer"></span>
+    <button type="button" class="btn secondary" id="split-reset" title="Reset to an even 50 / 50 split">50 / 50</button>
+    <a class="btn secondary" href="{{ url_for('view') }}">← Single view</a>
+  </div>
+  <div class="split-body" id="split-body">
+    <iframe class="split-pane" id="split-left" src="{{ url_for('view', embed=1) }}" title="Left view"></iframe>
+    <div class="split-divider" id="split-divider" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Drag (or use arrow keys) to resize the panes" title="Drag to resize"></div>
+    <iframe class="split-pane" id="split-right" src="{{ url_for('view', embed=1) }}" title="Right view"></iframe>
+  </div>
+</div>
+
+<script>
+  // Draggable divider: resize the two panes. While dragging, disable pointer
+  // events on the iframes so the mouse-move keeps reaching this document (an
+  // iframe would otherwise swallow the events as the cursor passes over it).
+  (function () {
+    var body = document.getElementById('split-body');
+    var divider = document.getElementById('split-divider');
+    var left = document.getElementById('split-left');
+    var right = document.getElementById('split-right');
+    var reset = document.getElementById('split-reset');
+    if (!body || !divider || !left || !right) return;
+    var dragging = false;
+
+    function setSplit(pct) {
+      pct = Math.max(15, Math.min(85, pct));
+      left.style.flex = '0 0 ' + pct + '%';
+      right.style.flex = '1 1 auto';
+    }
+    function pointerX(e) { return e.touches && e.touches.length ? e.touches[0].clientX : e.clientX; }
+    function onMove(e) {
+      if (!dragging) return;
+      var rect = body.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      setSplit(((pointerX(e) - rect.left) / rect.width) * 100);
+      e.preventDefault();
+    }
+    function start(e) {
+      dragging = true;
+      body.classList.add('dragging');
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    }
+    function stop() {
+      if (!dragging) return;
+      dragging = false;
+      body.classList.remove('dragging');
+      document.body.style.userSelect = '';
+    }
+
+    divider.addEventListener('mousedown', start);
+    divider.addEventListener('touchstart', start, { passive: false });
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('mouseup', stop);
+    window.addEventListener('touchend', stop);
+
+    // Keyboard resize for accessibility (focus the divider, then arrow keys).
+    divider.addEventListener('keydown', function (e) {
+      var rect = body.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      var cur = (left.getBoundingClientRect().width / rect.width) * 100;
+      if (e.key === 'ArrowLeft') { setSplit(cur - 3); e.preventDefault(); }
+      else if (e.key === 'ArrowRight') { setSplit(cur + 3); e.preventDefault(); }
+    });
+
+    if (reset) reset.addEventListener('click', function () {
+      left.style.flex = '';
+      right.style.flex = '';
+    });
+  })();
+</script>
+
+{% endblock %}

@@ -45,7 +45,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;600&family=JetBrains+Mono:wght@400;600&family=Fira+Code:wght@400;600&family=Source+Code+Pro:wght@400;600&family=IBM+Plex+Mono:wght@400;600&family=Roboto+Mono:wght@400;600&family=Ubuntu+Mono&family=Space+Mono:wght@400;700&family=Inconsolata:wght@400;600&family=Inter:wght@400;600&family=Roboto:wght@400;500&family=Open+Sans:wght@400;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
 </head>
-<body>
+<body class="{{ 'embed' if embed is defined and embed else '' }}">
   {% if current_user %}
   <header class="app">
     <h1>LOG <span>PARSER</span></h1>
